@@ -1,0 +1,757 @@
+---
+title: "RS09.siblings_Venn"
+author: "Jay"
+date: "2024-04-12"
+output: html_document
+---
+Here I try to link the impact of early gut micriome on 1y-gut microbiome with the impact of environmental factors on 1y-gut microbiome by investigating how much bacteria were influenced by having siblings or not and if those bacteria are differentially abundant in terms of CS score at 1 year
+
+method: DA test, draw Venn diagram to illustration how much bacteria are shared by the DA results
+
+
+#set outpath
+```{r}
+outpath <- "../results/NC.RS09_1.siblings_Venn"
+dir.create(outpath)
+
+```
+
+
+#load packages
+```{r}
+library(ggforce)
+library(phyloseq)
+library(copiome)
+library(DAtest)
+library(magrittr)
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+library(ggrepel)
+library(speedyseq)
+source("../jay_small_functions/DAtest.vcnpl.R")
+load("../data/phy_3timepoints_restoration_score.rdata")
+```
+
+# Old child DA test
+## at 1 week
+### oldchild_yn, full dataset
+```{r}
+ps <- phy_3timepoints %>% subset_samples(Visit == "1 week" & !oldchild_yn %in% c(NA)) %>% 
+  speedyseq::tax_glom("species") %>% filter_phy(prevalence = .1, abundance = 1e-4,compositional = FALSE)
+
+
+name_clean <- tax_df(ps)$species %>% gsub("\\[|\\]", "", .) %>% gsub(" ","_",.) %>% gsub("-","_",.) %>% gsub("^_","",.) %>% gsub("^[0-9]","a\\",.)
+tax_table(ps) <- as(tax_table(ps), "matrix") %>% as.data.frame() %>% dplyr::mutate(species = name_clean) %>% as(., "matrix")
+
+ps_sort_1wk <- ps %>% make_mradat() %>% dplyr::arrange(mra)
+
+
+final<-DA.lli2(ps, predictor = "oldchild_yn", covars = c("Reads","delivery"),p.adj = "fdr")
+n_test_1wk <- nrow(final)
+
+DAtest_gm1wk_oldchild_full <- final
+tablename1 <- paste0(outpath,"/DAtest_gm1wk_oldchild_full.csv", sep = "")
+write.csv(DAtest_gm1wk_oldchild_full,tablename1)
+
+```
+
+
+### oldchild_yn, cs stratum
+```{r}
+ps <- phy_3timepoints %>% subset_samples(Visit == "1 week" & !oldchild_yn %in% c(NA) & delivery == "c_section") %>% 
+  speedyseq::tax_glom("species") %>% filter_phy(prevalence = .1, abundance = 1e-4,compositional = FALSE)
+
+
+name_clean <- tax_df(ps)$species %>% gsub("\\[|\\]", "", .) %>% gsub(" ","_",.) %>% gsub("-","_",.) %>% gsub("^_","",.) %>% gsub("^[0-9]","a\\",.)
+tax_table(ps) <- as(tax_table(ps), "matrix") %>% as.data.frame() %>% dplyr::mutate(species = name_clean) %>% as(., "matrix")
+ps_sort_1wk_cs <- ps %>% make_mradat() %>% dplyr::arrange(mra)
+
+final<-DA.lli2(ps, predictor = "oldchild_yn", covars = c("Reads"),p.adj = "fdr")
+n_test_1wk_cs <- nrow(final)
+
+DAtest_gm1wk_oldchild_cs <- final
+tablename1 <- paste0(outpath,"/DAtest_gm1wk_oldchild_cs.csv", sep = "")
+write.csv(DAtest_gm1wk_oldchild_cs,tablename1)
+```
+
+
+## at 1 month
+### oldchild_yn, full dataset
+```{r}
+ps <- phy_3timepoints %>% subset_samples(Visit == "1 month" & !oldchild_yn %in% c(NA)) %>% 
+  speedyseq::tax_glom("species") %>% filter_phy(prevalence = .1, abundance = 1e-4,compositional = FALSE)
+
+
+name_clean <- tax_df(ps)$species %>% gsub("\\[|\\]", "", .) %>% gsub(" ","_",.) %>% gsub("-","_",.) %>% gsub("^_","",.) %>% gsub("^[0-9]","a\\",.)
+tax_table(ps) <- as(tax_table(ps), "matrix") %>% as.data.frame() %>% dplyr::mutate(species = name_clean) %>% as(., "matrix")
+ps_sort_1mon <- ps %>% make_mradat() %>% dplyr::arrange(mra)
+
+
+final<-DA.lli2(ps, predictor = "oldchild_yn", covars = c("Reads","delivery"),p.adj = "fdr")
+n_test_1mon <- nrow(final)
+
+DAtest_gm1mon_oldchild_full <- final
+tablename1 <- paste0(outpath,"/DAtest_gm1mon_oldchild_full.csv", sep = "")
+write.csv(DAtest_gm1mon_oldchild_full,tablename1)
+
+```
+
+
+
+### oldchild_yn, cs stratum
+```{r}
+ps <- phy_3timepoints %>% subset_samples(Visit == "1 month" & !oldchild_yn %in% c(NA) & delivery == "c_section") %>% 
+  speedyseq::tax_glom("species") %>% filter_phy(prevalence = .1, abundance = 1e-4,compositional = FALSE)
+
+
+name_clean <- tax_df(ps)$species %>% gsub("\\[|\\]", "", .) %>% gsub(" ","_",.) %>% gsub("-","_",.) %>% gsub("^_","",.) %>% gsub("^[0-9]","a\\",.)
+tax_table(ps) <- as(tax_table(ps), "matrix") %>% as.data.frame() %>% dplyr::mutate(species = name_clean) %>% as(., "matrix")
+ps_sort_1mon_cs <- ps %>% make_mradat() %>% dplyr::arrange(mra)
+
+
+final<-DA.lli2(ps, predictor = "oldchild_yn", covars = c("Reads"),p.adj = "fdr")
+n_test_1mon_cs <- nrow(final)
+
+DAtest_gm1mon_oldchild_cs <- final
+tablename1 <- paste0(outpath,"/DAtest_gm1mon_oldchild_cs.csv", sep = "")
+write.csv(DAtest_gm1mon_oldchild_cs,tablename1)
+
+```
+
+## 1 year
+### oldchild_yn full cohort
+```{r}
+ps <- phy_3timepoints %>% subset_samples(Visit == "1 year" & !oldchild_yn %in% c(NA)) %>% 
+  speedyseq::tax_glom("species") %>% filter_phy(prevalence = .1, abundance = 1e-4,compositional = FALSE)
+
+
+name_clean <- tax_df(ps)$species %>% gsub("\\[|\\]", "", .) %>% gsub(" ","_",.) %>% gsub("-","_",.) %>% gsub("^_","",.) %>% gsub("^[0-9]","a\\",.)
+tax_table(ps) <- as(tax_table(ps), "matrix") %>% as.data.frame() %>% dplyr::mutate(species = name_clean) %>% as(., "matrix")
+
+ps_sort_1yr <- ps %>% make_mradat() %>% dplyr::arrange(mra)
+
+
+final<-DA.lli2(ps, predictor = "oldchild_yn", covars = c("Reads","delivery"),p.adj = "fdr")
+n_test_1yr <- nrow(final)
+
+DAtest_gm1yr_oldchild_full <- final
+tablename1 <- paste0(outpath,"/DAtest_gm1yr_oldchild_full.csv", sep = "")
+write.csv(DAtest_gm1yr_oldchild_full,tablename1)
+```
+
+
+### oldchild_yn cs stratum
+```{r}
+ps <- phy_3timepoints %>% subset_samples(Visit == "1 year" & !oldchild_yn %in% c(NA) & delivery == "c_section") %>% 
+  speedyseq::tax_glom("species") %>% filter_phy(prevalence = .1, abundance = 1e-4,compositional = FALSE)
+
+
+name_clean <- tax_df(ps)$species %>% gsub("\\[|\\]", "", .) %>% gsub(" ","_",.) %>% gsub("-","_",.) %>% gsub("^_","",.) %>% gsub("^[0-9]","a\\",.)
+tax_table(ps) <- as(tax_table(ps), "matrix") %>% as.data.frame() %>% dplyr::mutate(species = name_clean) %>% as(., "matrix")
+ps_sort_1yr_cs <- ps %>% make_mradat() %>% dplyr::arrange(mra)
+
+final<-DA.lli2(ps, predictor = "oldchild_yn", covars = c("Reads"),p.adj = "fdr")
+n_test_1yr_cs <- nrow(final)
+
+DAtest_gm1yr_oldchild_cs <- final
+tablename1 <- paste0(outpath,"/DAtest_gm1yr_oldchild_cs.csv", sep = "")
+write.csv(DAtest_gm1yr_oldchild_cs,tablename1)
+```
+
+#creat venn diagram oldchild
+##in full cohort
+###Venn
+```{r}
+library(ggvenn)      
+DAtest_gm1wk_oldchild_full <- rio::import("../results/RS09_1.siblings_Venn/DAtest_gm1wk_oldchild_full.csv") %>% dplyr::select(-V1)
+DAtest_gm1mon_oldchild_full <- rio::import("../results/RS09_1.siblings_Venn/DAtest_gm1mon_oldchild_full.csv") %>% dplyr::select(-V1)
+# DAtest_gm1yr_oldchild_full <- rio::import("../results/RS09_1.siblings_Venn/DAtest_gm1yr_oldchild_full.csv") %>% dplyr::select(-V1)
+
+da_oldchild_1wk <- DAtest_gm1wk_oldchild_full %>% filter(pval<0.05) %>% .$species
+da_oldchild_1mon <- DAtest_gm1mon_oldchild_full %>% filter(pval<0.05) %>% .$species
+# da_oldchild_1yr <- DAtest_gm1yr_oldchild_full %>% filter(pval<0.05) %>% .$species
+
+# da_delivery_1wk <- DAtest_gm1wk_delivery_full %>% filter(pval<0.05) %>% .$species
+# da_delivery_1mon <- DAtest_gm1mon_delivery_full %>% filter(pval<0.05) %>% .$species
+# da_delivery_1yr <- DAtest_gm1yr_delivery_full %>% filter(pval<0.05) %>% .$species
+
+da_restoration_score_1wk <- rio::import("../results/RS03.DA/DAtest_gm1wk_con_full_adj_for_delivery.csv") %>% filter(pval<0.05) %>% .$species
+da_restoration_score_1mon <- rio::import("../results/RS03.DA/DAtest_gm1mon_con_full_adj_for_delivery.csv") %>% filter(pval<0.05) %>% .$species
+# da_restoration_score_1yr <- rio::import("../results/RS03.DA/DAtest_gm1yr_con_full_adj_for_delivery.csv") %>% filter(pval<0.05) %>% .$species
+
+
+
+A <-list('siblings'= da_oldchild_1wk,'restoration_score' = da_restoration_score_1wk) 
+B <-list('siblings'= da_oldchild_1mon,'restoration_score' = da_restoration_score_1mon) 
+# C <-list('siblings'= da_oldchild_1yr,'restoration_score' = da_restoration_score_1yr) 
+
+
+
+library(VennDiagram)
+library(gridExtra)
+library(grid)
+
+# Function to create a single Venn diagram
+create_venn <- function(area1, area2, cross_area, title, bg_color = "white", bg_alpha = 1) {
+  venn.plot <- draw.pairwise.venn(
+    area1 = area1,
+    area2 = area2,
+    cross.area = cross_area,
+    category = c("", ""),
+    fill = c("#0072B2", "#D55E00"),
+    alpha = 0.5,
+    ext.text = FALSE,
+    cex = 1.2,
+    # fontface = "bold",
+    lty = "blank",
+    ext.line.lty = "blank",
+    euler.d = FALSE,
+    scaled = FALSE,
+    rotation.degree = ifelse(area1 < area2, 180, 0),  # This ensures consistent orientation
+  )
+
+  venn.grob <- grobTree(venn.plot)
+  
+  # Create a ggplot object
+ p <- ggplot() +
+    annotation_custom(venn.grob, xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf) +
+    theme_void() +
+    theme(
+      plot.background = element_rect(fill = scales::alpha(bg_color, bg_alpha), color = NA),
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      panel.border = element_blank(),
+      plot.margin = unit(c(0, 0, 0, 0), "cm")
+    ) +
+    ggtitle(title)
+  
+  return(p)
+
+}
+
+var_left <- "siblings"
+var_right <- "restoration_score"
+
+sort_and_calculate <- function(data) {
+  area1 <- length(data[[var_left]])
+  area2 <- length(data[[var_right]])
+  cross_area <- length(intersect(sort(data[[var_left]]), sort(data[[var_right]])))
+  return(list(area1 = area1, area2 = area2, cross_area = cross_area))
+}
+
+week_data <- sort_and_calculate(A)
+month_data <- sort_and_calculate(B)
+# year_data <- sort_and_calculate(C)
+
+venn1 <- create_venn(week_data$area1, week_data$area2, week_data$cross_area, "1 week")
+venn2 <- create_venn(month_data$area1, month_data$area2, month_data$cross_area, "1 month")
+# venn3 <- create_venn(year_data$area1, year_data$area2, year_data$cross_area, "1 year", bg_color = "gray", bg_alpha = 0.3)
+
+save(venn1, file = paste0(outpath, "/Venn1_full.RData"))
+save(venn2, file = paste0(outpath, "/Venn2_full.RData"))
+# save(venn3, file = paste0(outpath, "/Venn3_full.RData"))
+
+p <- venn1 + venn2
+
+
+plotname1 <- paste0(outpath, "/Venn_full_DA.pdf",sep = "")
+ggsave(plotname1, p,width = 5,height = 2.5)
+
+save(p, file = paste0(outpath, "/Venn_full_DA.RData"))
+
+Venn1wk <- intersect(da_oldchild_1wk,da_restoration_score_1wk)
+Venn1mon <- intersect(da_oldchild_1mon, da_restoration_score_1mon)
+# Venn1yr <- intersect(da_oldchild_1yr, da_restoration_score_1yr)
+
+
+```
+
+
+###quadra plot
+```{r}
+DAtest_gm1wk_con_full <-  rio::import("../results/RS03.DA/DAtest_gm1wk_con_full_adj_for_delivery.csv") %>% dplyr::select(-V1) %>% dplyr::select(logFC,pval,pval.adj,species) %>% rename_with(~paste0(.x, "_csscore"))
+DAtest_gm1wk_con_full$Visit <- "1 week"
+
+DAtest_gm1wk_oldchild_full <- rio::import("../results/RS09.siblings_Venn/DAtest_gm1wk_oldchild_full.csv") %>% dplyr::select(logFC,pval,pval.adj,species) %>% rename_with(~paste0(.x,"_oldchild"))
+
+DA_gm1wk_venn <- DAtest_gm1wk_con_full %>% full_join(DAtest_gm1wk_oldchild_full, by = c("species_csscore" = "species_oldchild"))
+DA_gm1wk_venn_label <- DA_gm1wk_venn %>% dplyr::filter(species_csscore %in% c(Venn1wk))
+
+
+DAtest_gm1mon_con_full <-  rio::import("../results/RS03.DA/DAtest_gm1mon_con_full_adj_for_delivery.csv") %>% dplyr::select(logFC,pval,pval.adj,species) %>% rename_with(~paste0(.x, "_csscore"))
+DAtest_gm1mon_con_full$Visit <- "1 month"
+
+DAtest_gm1mon_oldchild_full <- rio::import("../results/RS09.siblings_Venn/DAtest_gm1mon_oldchild_full.csv") %>% dplyr::select(logFC,pval,pval.adj,species)  %>% rename_with(~paste0(.x,"_oldchild"))
+
+DA_gm1mon_venn <- DAtest_gm1mon_con_full %>% full_join(DAtest_gm1mon_oldchild_full, by = c("species_csscore" = "species_oldchild"))
+DA_gm1mon_venn_label <- DA_gm1mon_venn %>% dplyr::filter(species_csscore %in% c(Venn1mon))
+
+
+
+
+# DAtest_gm1yr_con_full <-  rio::import("../results/RS03.DA/DAtest_gm1yr_con_full_adj_for_delivery.csv") %>% select(logFC,pval,pval.adj,species) %>% rename_with(~paste0(.x, "_csscore"))
+# DAtest_gm1yr_con_full$Visit <- "1 year"
+# 
+# DAtest_gm1yr_oldchild_full <- rio::import("../results/RS09.siblings_Venn/DAtest_gm1yr_oldchild_full.csv") %>% select(logFC,pval,pval.adj,species) %>% rename_with(~paste0(.x,"_oldchild"))
+# 
+# DA_gm1yr_venn <- DAtest_gm1yr_con_full %>% full_join(DAtest_gm1yr_oldchild_full, by = c("species_csscore" = "species_oldchild"))
+# DA_gm1yr_venn_label <- DA_gm1yr_venn %>% dplyr::filter(species_csscore %in% c(Venn1wk, Venn1mon))
+
+
+DA_gm3t_Venn_qua <- DA_gm1wk_venn %>% rbind(DA_gm1mon_venn) #%>% rbind(DA_gm1yr_venn)
+DA_gm3t_Venn_qua$Visit <- factor(DA_gm3t_Venn_qua$Visit, levels = c("1 week","1 month"))
+DA_gm3t_Venn_qua_label <- DA_gm1wk_venn_label %>% rbind(DA_gm1mon_venn_label) #%>% rbind(DA_gm1yr_venn_label)
+DA_gm3t_Venn_qua_label$Visit <- factor(DA_gm3t_Venn_qua_label$Visit, levels = c("1 week", "1 month"))
+
+DA_gm3t_Venn_qua <- DA_gm3t_Venn_qua %>%
+  mutate(
+    is_overlap = case_when(
+      Visit == "1 week" ~ species_csscore %in% Venn1wk,
+      Visit == "1 month" ~ species_csscore %in% Venn1mon,
+      # Visit == "1 year" ~ species_csscore %in% Venn1yr,
+      TRUE ~ FALSE
+    ),
+    nudge_x = ifelse(logFC_csscore > 0, 0.1, -0.1) 
+  ) %>%
+  filter(!is.na(logFC_csscore) & !is.na(logFC_oldchild)) 
+
+DA_gm3t_Venn_qua_label <- DA_gm3t_Venn_qua_label %>%
+  filter(!is.na(logFC_csscore) & !is.na(logFC_oldchild)) %>%
+  mutate(nudge_x = ifelse(logFC_csscore > 0, 0.1, -0.1)) 
+
+##make a number of positive associations vs number of negative regardless of whether they are significant
+DA_gm3t_Venn_qua$associations <- ifelse((DA_gm3t_Venn_qua$logFC_csscore >0 & DA_gm3t_Venn_qua$logFC_oldchild >0) | (DA_gm3t_Venn_qua$logFC_csscore <0 & DA_gm3t_Venn_qua$logFC_oldchild <0),1, 0)
+sum(DA_gm3t_Venn_qua[DA_gm3t_Venn_qua$Visit == "1 week",]$associations) / length(DA_gm3t_Venn_qua[DA_gm3t_Venn_qua$Visit == "1 week",]$associations) #85/140
+sum(DA_gm3t_Venn_qua[DA_gm3t_Venn_qua$Visit == "1 month",]$associations) / length(DA_gm3t_Venn_qua[DA_gm3t_Venn_qua$Visit == "1 month",]$associations) #94/146
+# sum(DA_gm3t_Venn_qua[DA_gm3t_Venn_qua$Visit == "1 year",]$associations) / length(DA_gm3t_Venn_qua[DA_gm3t_Venn_qua$Visit == "1 year",]$associations) #159/197
+
+DA_gm3t_Venn_qua_label$species_csscore <- gsub("_", " ",DA_gm3t_Venn_qua_label$species_csscore)
+
+#= 338/483
+p <- DA_gm3t_Venn_qua %>%
+  ggplot(aes(x = logFC_csscore, y = logFC_oldchild)) +
+  geom_point(aes(color = is_overlap, alpha = is_overlap), size = 2) +  # 使用 is_overlap 列设置颜色和 alpha 值
+  coord_equal()+
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", alpha = 0.5)+
+  scale_color_manual(
+    values = c(`TRUE` = "blue", `FALSE` = "grey"),
+    labels = c(`TRUE` = "Having older siblins AND 1-year restoration score", `FALSE` = "Having older siblings or 1-year restoraion score")
+  ) +  
+  scale_alpha_manual(
+    values = c(`TRUE` = 0.9, `FALSE` = 0.3),
+    labels = c(`TRUE` = "Having older siblins AND 1-year restoration score", `FALSE` = "Having older siblings or 1-year restoraion score")
+  ) +  
+  guides(color = guide_legend(title = "Species associated with"), alpha = guide_legend(title = "Species associated with")) +  # 设置图例标题
+  facet_wrap(~Visit) +
+  xlim(c(-1, 1)) +
+  ylim(c(-1, 1)) +
+  xlab("logFC according to restoration score")+
+  ylab("logFC according to siblings")+
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.5) +
+  geom_text_repel(
+    data = DA_gm3t_Venn_qua_label,
+    aes(x = logFC_csscore, y = logFC_oldchild, label = species_csscore),  
+    box.padding = unit(0.35, "lines"),  
+    point.padding = unit(0.5, "lines"),  
+    segment.color = 'grey50',  
+    color = 'black',  
+    fontface = 'italic',  
+    size = 4,  
+    force = 1,  
+    max.overlaps = 20,  
+    min.segment.length = 0.2,  
+    nudge_x = DA_gm3t_Venn_qua_label$nudge_x  
+  ) +
+  theme_classic() +
+  theme(
+    text = element_text(size = 14),  
+    axis.title = element_text(size = 14),  
+    axis.text = element_text(size = 14),  
+    strip.text = element_text(size = 14),  
+    legend.position = "bottom",  
+    legend.direction = "vertical"  
+  );p
+
+plotname1 <- paste0(outpath, "/Venn_qudraplot.pdf",sep = "")
+ggsave(plotname1, p, width = 10, height = 5, limitsize = TRUE)
+
+save(p, file = paste0(outpath, "/Venn_quadraplot.RData"))
+
+
+```
+
+
+
+##in cs stratum
+###Venn
+```{r}
+
+# install.packages("ggvenn")
+
+library(ggvenn)      
+DAtest_gm1wk_oldchild_cs <- rio::import("../results/RS09.siblings_Venn/DAtest_gm1wk_oldchild_cs.csv") %>% dplyr::select(-V1)
+DAtest_gm1mon_oldchild_cs <- rio::import("../results/RS09.siblings_Venn/DAtest_gm1mon_oldchild_cs.csv") %>% dplyr::select(-V1)
+# DAtest_gm1yr_oldchild_cs <- rio::import("../results/RS09.siblings_Venn/DAtest_gm1yr_oldchild_cs.csv") %>% dplyr::select(-V1)
+
+da_oldchild_1wk_cs <- DAtest_gm1wk_oldchild_cs %>% filter(pval<0.05) %>% .$species
+da_oldchild_1mon_cs <- DAtest_gm1mon_oldchild_cs %>% filter(pval<0.05) %>% .$species
+# da_oldchild_1yr_cs <- DAtest_gm1yr_oldchild_cs %>% filter(pval<0.05) %>% .$species
+
+# da_delivery_1wk <- DAtest_gm1wk_delivery_full %>% filter(pval<0.05) %>% .$species
+# da_delivery_1mon <- DAtest_gm1mon_delivery_full %>% filter(pval<0.05) %>% .$species
+# da_delivery_1yr <- DAtest_gm1yr_delivery_full %>% filter(pval<0.05) %>% .$species
+
+da_restoration_score_1wk_cs <- rio::import("../results/RS03.DA/DAtest_gm1wk_con_cs.csv") %>% filter(pval<0.05) %>% .$species
+da_restoration_score_1mon_cs <- rio::import("../results/RS03.DA/DAtest_gm1mon_con_cs.csv") %>% filter(pval<0.05) %>% .$species
+# da_restoration_score_1yr_cs <- rio::import("../results/RS03.DA/DAtest_gm1yr_con_cs.csv") %>% filter(pval<0.05) %>% .$species
+
+
+
+A <-list('siblings'= da_oldchild_1wk_cs,'restoration_score' = da_restoration_score_1wk_cs) 
+B <-list('siblings'= da_oldchild_1mon_cs,'restoration_score' = da_restoration_score_1mon_cs) 
+# C <-list('siblings'= da_oldchild_1yr_cs,'restoration_score' = da_restoration_score_1yr_cs) 
+
+library(VennDiagram)
+library(gridExtra)
+library(grid)
+
+create_venn <- function(area1, area2, cross_area, title, bg_color = "white", bg_alpha = 1) {
+  venn.plot <- draw.pairwise.venn(
+    area1 = area1,
+    area2 = area2,
+    cross.area = cross_area,
+    category = c("", ""),
+    fill = c("#0072B2", "#D55E00"),
+    alpha = 0.5,
+    ext.text = FALSE,
+    cex = 1.2,
+    # fontface = "bold",
+    lty = "blank",
+    ext.line.lty = "blank",
+    euler.d = FALSE,
+    scaled = FALSE,
+    rotation.degree = ifelse(area1 < area2, 180, 0),  # This ensures consistent orientation
+  )
+
+  venn.grob <- grobTree(venn.plot)
+  
+  # Create a ggplot object
+ p <- ggplot() +
+    annotation_custom(venn.grob, xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf) +
+    theme_void() +
+    theme(
+      plot.background = element_rect(fill = scales::alpha(bg_color, bg_alpha), color = NA),
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      panel.border = element_blank(),
+      plot.margin = unit(c(0, 0, 0, 0), "cm")
+    ) +
+    ggtitle(title)
+  
+  return(p)
+
+}
+
+var_left <- "siblings"
+var_right <- "restoration_score"
+
+
+sort_and_calculate <- function(data) {
+  area1 <- length(data[[var_left]])
+  area2 <- length(data[[var_right]])
+  cross_area <- length(intersect(sort(data[[var_left]]), sort(data[[var_right]])))
+  return(list(area1 = area1, area2 = area2, cross_area = cross_area))
+}
+
+week_data <- sort_and_calculate(A)
+month_data <- sort_and_calculate(B)
+# year_data <- sort_and_calculate(C)
+
+venn1 <- create_venn(week_data$area1, week_data$area2, week_data$cross_area, "1 week")
+venn2 <- create_venn(month_data$area1, month_data$area2, month_data$cross_area, "1 month")
+# venn3 <- create_venn(year_data$area1, year_data$area2, year_data$cross_area, "1 year", bg_color = "gray", bg_alpha = 0.3)
+
+save(venn1, file = paste0(outpath,"/Venn1_cs.RData"))
+save(venn2, file = paste0(outpath, "/Venn2_cs.RData"))
+# save(venn3, file = paste0(outpath, "/Venn3_cs.RData"))
+
+p2 <- venn1 + venn2
+
+plotname1 <- paste0(outpath, "/Venn_full_DA_cs.pdf",sep = "")
+ggsave(plotname1, p2, width = 5,height = 2.5)
+
+save(p2, file = paste0(outpath, "/Venn_full_DA_cs.RData"))
+
+Venn1wk_cs <- intersect(da_oldchild_1wk_cs,da_restoration_score_1wk_cs)
+Venn1mon_cs <- intersect(da_oldchild_1mon_cs, da_restoration_score_1mon_cs)
+# Venn1yr_cs <- intersect(da_oldchild_1yr_cs, da_restoration_score_1yr_cs)
+
+```
+
+### quadra plot
+```{r}
+DAtest_gm1wk_con_cs <-  rio::import("../results/RS03.DA/DAtest_gm1wk_con_cs.csv") %>% dplyr::select(-V1) %>% dplyr::select(logFC,pval,pval.adj,species)  %>% rename_with(~paste0(.x, "_csscore"))
+DAtest_gm1wk_con_cs$Visit <- "1 week"
+
+DAtest_gm1wk_oldchild_cs <- rio::import("../results/RS09.siblings_Venn/DAtest_gm1wk_oldchild_cs.csv") %>% dplyr::select(logFC,pval,pval.adj,species) %>% rename_with(~paste0(.x,"_oldchild"))
+
+DA_gm1wk_venn_cs <- DAtest_gm1wk_con_cs %>% full_join(DAtest_gm1wk_oldchild_cs, by = c("species_csscore" = "species_oldchild"))
+DA_gm1wk_venn_cs_label <- DA_gm1wk_venn_cs %>% dplyr::filter(species_csscore %in% c(Venn1wk_cs))
+
+
+DAtest_gm1mon_con_cs <-  rio::import("../results/RS03.DA/DAtest_gm1mon_con_cs.csv") %>% dplyr::select(-V1) %>% dplyr::select(logFC,pval,pval.adj,species) %>% rename_with(~paste0(.x, "_csscore"))
+DAtest_gm1mon_con_cs$Visit <- "1 month"
+
+DAtest_gm1mon_oldchild_cs <- rio::import("../results/RS09.siblings_Venn/DAtest_gm1mon_oldchild_cs.csv") %>% dplyr::select(logFC,pval,pval.adj,species) %>% rename_with(~paste0(.x,"_oldchild"))
+
+DA_gm1mon_venn_cs <- DAtest_gm1mon_con_cs %>% left_join(DAtest_gm1mon_oldchild_cs, by = c("species_csscore" = "species_oldchild"))
+DA_gm1mon_venn_cs_label <- DA_gm1mon_venn_cs %>% dplyr::filter(species_csscore %in% c(Venn1mon_cs))
+
+
+
+DA_gm3t_Venn_qua_cs <- DA_gm1wk_venn_cs %>% rbind(DA_gm1mon_venn_cs) #%>% rbind(DA_gm1yr_venn_cs)
+DA_gm3t_Venn_qua_cs$Visit <- factor(DA_gm3t_Venn_qua_cs$Visit, levels = c("1 week", "1 month"))
+DA_gm3t_Venn_qua_cs_label <- DA_gm1wk_venn_cs_label %>% rbind(DA_gm1mon_venn_cs_label) #%>% rbind(DA_gm1yr_venn_cs_label)
+
+DA_gm3t_Venn_qua_cs_label$Visit <- factor(DA_gm3t_Venn_qua_cs_label$Visit, levels = c("1 week","1 month"))
+
+DA_gm3t_Venn_qua_cs <- DA_gm3t_Venn_qua_cs %>%
+  mutate(
+    is_overlap = case_when(
+      Visit == "1 week" ~ species_csscore %in% Venn1wk_cs,
+      Visit == "1 month" ~ species_csscore %in% Venn1mon_cs,
+      # Visit == "1 year" ~ species_csscore %in% Venn1yr_cs,
+      TRUE ~ FALSE
+    ),
+    nudge_x = ifelse(logFC_csscore > 0, 0.1, -0.1)  
+  ) %>%
+  filter(!is.na(logFC_csscore) & !is.na(logFC_oldchild))  
+
+DA_gm3t_Venn_qua_cs_label <- DA_gm3t_Venn_qua_cs_label %>%
+  filter(!is.na(logFC_csscore) & !is.na(logFC_oldchild)) %>%
+  mutate(nudge_x = ifelse(logFC_csscore > 0, 0.1, -0.1))  
+
+
+
+DA_gm3t_Venn_qua_cs$associations <- ifelse((DA_gm3t_Venn_qua_cs$logFC_csscore >0 & DA_gm3t_Venn_qua_cs$logFC_oldchild >0) | (DA_gm3t_Venn_qua_cs$logFC_csscore <0 & DA_gm3t_Venn_qua_cs$logFC_oldchild <0),1, 0)
+sum(DA_gm3t_Venn_qua_cs[DA_gm3t_Venn_qua_cs$Visit == "1 week",]$associations) / length(DA_gm3t_Venn_qua_cs[DA_gm3t_Venn_qua_cs$Visit == "1 week",]$associations) #87/137
+sum(DA_gm3t_Venn_qua_cs[DA_gm3t_Venn_qua_cs$Visit == "1 month",]$associations) / length(DA_gm3t_Venn_qua_cs[DA_gm3t_Venn_qua_cs$Visit == "1 month",]$associations) #73/136
+# sum(DA_gm3t_Venn_qua_cs[DA_gm3t_Venn_qua_cs$Visit == "1 year",]$associations) / length(DA_gm3t_Venn_qua_cs[DA_gm3t_Venn_qua_cs$Visit == "1 year",]$associations) #136/177
+
+
+DA_gm3t_Venn_qua_cs_label$species_csscore <- gsub("_", " ",DA_gm3t_Venn_qua_cs_label$species_csscore)
+
+
+p <- DA_gm3t_Venn_qua_cs %>%
+  ggplot(aes(x = logFC_csscore, y = logFC_oldchild)) +
+  geom_point(aes(color = is_overlap, alpha = is_overlap), size = 2) +  
+  coord_equal()+
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", alpha = 0.5)+
+  scale_color_manual(
+    values = c(`TRUE` = "blue", `FALSE` = "grey"),
+    labels = c(`TRUE` = "Having older siblins AND 1-year restoration score", `FALSE` = "Having older siblings or 1-year restoraion score")
+  ) +  
+  scale_alpha_manual(
+    values = c(`TRUE` = 0.9, `FALSE` = 0.3),
+    labels = c(`TRUE` = "Having older siblins AND 1-year restoration score", `FALSE` = "Having older siblings or 1-year restoraion score")
+  ) +  
+  guides(color = guide_legend(title = "Species associated with"), alpha = guide_legend(title = "Species associated with")) +  # 设置图例标题
+  facet_wrap(~Visit) +
+  xlim(c(-1, 1)) +
+  ylim(c(-1, 1)) +
+  xlab("logFC according to restoration score")+
+  ylab("logFC according to siblings")+
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.5) +
+  geom_text_repel(
+    data = DA_gm3t_Venn_qua_label,
+    aes(x = logFC_csscore, y = logFC_oldchild, label = species_csscore), 
+    box.padding = unit(0.35, "lines"),  
+    point.padding = unit(0.5, "lines"),  
+    segment.color = 'grey50',  
+    color = 'black',  
+    fontface = 'italic', 
+    size = 4,  
+    force = 1,  
+    max.overlaps = 20,  
+    min.segment.length = 0.2,  
+    nudge_x = DA_gm3t_Venn_qua_label$nudge_x  
+  ) +
+  theme_classic() +
+  theme(
+    text = element_text(size = 14),  
+    axis.title = element_text(size = 14), 
+    axis.text = element_text(size = 14),  
+    strip.text = element_text(size = 14),  
+    legend.position = "bottom",  
+    legend.direction = "vertical"  
+  );p
+
+
+
+plotname1 <- paste0(outpath, "/Venn_qudraplot_cs.pdf",sep = "")
+ggsave(plotname1, p, width = 10, height = 5, limitsize = TRUE)
+
+save(p, file = paste0(outpath, "/Venn_quadraplot_cs.RData"))
+
+
+```
+
+#creat venn diagram delivery
+## delivery
+## Venn_delivery
+```{r}
+#install.packages("ggvenn")
+
+library(ggvenn)      
+
+DAtest_gm1wk_delivery <- rio::import("../results/RS09_1.siblings_Venn/DAtest_gm1wk_oldchild_full.csv") %>% dplyr::select(-V1)
+DAtest_gm1mon_delivery <- rio::import("../results/RS09_1.siblings_Venn/DAtest_gm1mon_oldchild_full.csv") %>% dplyr::select(-V1)
+DAtest_gm1yr_delivery <- rio::import("../results/RS09_1.siblings_Venn/DAtest_gm1yr_oldchild_full.csv") %>% dplyr::select(-V1)
+
+da_delivery_1wk <- DAtest_gm1wk_delivery %>% filter(pval<0.05) %>% .$species
+da_delivery_1mon <- DAtest_gm1mon_delivery %>% filter(pval<0.05) %>% .$species
+da_delivery_1yr <- DAtest_gm1yr_delivery %>% filter(pval<0.05) %>% .$species
+
+# da_delivery_1wk <- DAtest_gm1wk_delivery_full %>% filter(pval<0.05) %>% .$species
+# da_delivery_1mon <- DAtest_gm1mon_delivery_full %>% filter(pval<0.05) %>% .$species
+# da_delivery_1yr <- DAtest_gm1yr_delivery_full %>% filter(pval<0.05) %>% .$species
+
+da_csscore_1wk <- rio::import("../results/RS03_1.DA/DAtest_gm1wk_con_full_adj_for_delivery.csv") %>% filter(pval<0.05) %>% .$species
+da_csscore_1mon <- rio::import("../results/RS03_1.DA/DAtest_gm1mon_con_full_adj_for_delivery.csv") %>% filter(pval<0.05) %>% .$species
+da_csscore_1yr <- rio::import("../results/RS03_1.DA/DAtest_gm1yr_con_full_adj_for_delivery.csv") %>% filter(pval<0.05) %>% .$species
+
+
+
+A <-list('delivery'= da_delivery_1wk,'cs_score' = da_csscore_1wk) 
+B <-list('delivery'= da_delivery_1mon,'cs_score' = da_csscore_1mon) 
+C <-list('delivery'= da_delivery_1yr,'cs_score' = da_csscore_1yr) 
+
+# Create individual Venn diagrams
+pa <- ggvenn(A,fill_color = c("#B0B0B0","#D55E00"))
+pa$layers <- pa$layers[-c(3)]
+pa <- pa + labs(title = "1 week") + 
+  theme(plot.title = element_text(hjust = 0.5,size = 14))
+pb <- ggvenn(B,fill_color = c("#B0B0B0","#D55E00"))
+pb$layers <- pb$layers[-c(3)]
+pb <- pb + labs(title = "1 month") + theme(plot.title = element_text(hjust = 0.5,size = 14));pb
+
+pc <- ggvenn(C,fill_color = c("#B0B0B0","#D55E00"))
+pc$layers <- pc$layers[-c(3)]
+pc <- pc + labs(title = "1 year") + theme(plot.title = element_text(hjust = 0.5, size = 14));pc
+
+# Combine the plots with a common title using patchwork
+# Here, only add a plain title with default settings to avoid theme errors
+combined_plot <- (pa | pb | pc) + 
+                 plot_annotation(title = "Species influenced by delivery mode and associated with 1y CS score")+
+scale_color_manual(values = c("#B0B0B0","#D55E00"),
+                  labels = c("delivery", "1y CS score"))
+
+# Manually create a legend
+legend_plot <- ggplot() +
+  geom_point(aes(x = 1, y = 5),color="#B0B0B0", size = 5) +
+  geom_point(aes(x = 1.25, y = 5),color="#D55E00", size = 5) +
+  geom_text(aes(x = 1.1, y = 5, label = "delivery"))+
+  geom_text(aes(x = 1.35, y = 5, label = "1y CS score"))+
+  xlim(0.6,1.8) + ylim(0,15)+
+  theme_void() +
+  theme(legend.position = "bottom", legend.title = element_text(size = 10), legend.text = element_text(size = 10));legend_plot
+
+final_plot <- combined_plot / legend_plot + 
+              plot_layout(heights = c(1, 0.3));final_plot
+
+plotname1 <- paste0(outpath, "/Venn_full_DA_delivery.png",sep = "")
+ggsave(plotname1, final_plot, width = 10, height = 4, limitsize = TRUE)
+
+save(final_plot, file = paste0(outpath, "/Venn_full_DA_delivery.RData"))
+
+Venn1wk_del <- intersect(da_delivery_1wk,da_csscore_1wk)
+Venn1mon_del <- intersect(da_delivery_1mon, da_csscore_1mon)
+Venn1yr_del <- intersect(da_delivery_1yr, da_csscore_1yr)
+
+```
+
+
+## Quadra plot
+```{r}
+DAtest_gm1wk_del_full <- rio::import("../results/RS09_1.siblings_Venn/DAtest_gm1wk_oldchild_full.csv") %>% dplyr::select(-V1) %>% dplyr::select(logFC,pval,pval.adj,species) %>% filter(species %in% Venn1wk_del) %>% rename_with(~paste0(.x, "_delivery"))
+
+DAtest_gm1wk_con_full <-  rio::import("../results/RS03_1.DA/DAtest_gm1wk_con_full_adj_for_delivery.csv") %>% dplyr::select(-V1) %>% dplyr::select(logFC,pval,pval.adj,species) %>% filter(species %in% Venn1wk_del) %>% rename_with(~paste0(.x, "_csscore"))
+DAtest_gm1wk_con_full$Visit <- "1 week"
+
+DA_gm1wk_venn_del <- DAtest_gm1wk_con_full %>% left_join(DAtest_gm1wk_del_full, by = c("species_csscore" = "species_delivery"))
+
+DA_gm1wk_venn_del_label <- DA_gm1wk_venn_del %>% dplyr::filter(species_csscore %in% c("Clostridium_perfringens", "Bifidobacterium_longum", "Bifidobacterium_pseudocatenulatum","Bacteroides_fragilis","Bacteroides_vulgatus","Bacteroides_dorei"))
+
+
+
+
+
+
+
+
+DAtest_gm1mon_del_full <- rio::import("../results/RS09_1.siblings_Venn/DAtest_gm1mon_oldchild_full.csv") %>% dplyr::select(-V1) %>% dplyr::select(logFC,pval,pval.adj,species) %>% filter(species %in% Venn1mon_del) %>% rename_with(~paste0(.x, "_delivery"))
+
+DAtest_gm1mon_con_full <-  rio::import("../results/RS03_1.DA/DAtest_gm1mon_con_full_adj_for_delivery.csv") %>% dplyr::select(logFC,pval,pval.adj,species) %>% filter(species %in% Venn1mon_del) %>% rename_with(~paste0(.x, "_csscore"))
+DAtest_gm1mon_con_full$Visit <- "1 month"
+
+DA_gm1mon_venn_del <- DAtest_gm1mon_con_full %>% left_join(DAtest_gm1mon_del_full, by = c("species_csscore" = "species_delivery"))
+DA_gm1mon_venn_del_label <- DA_gm1mon_venn_del %>% dplyr::filter(species_csscore %in% c("Clostridium_perfringens", "Bifidobacterium_longum", "Bifidobacterium_pseudocatenulatum","Bacteroides_fragilis","Bacteroides_vulgatus","Bacteroides_dorei"))
+
+
+
+
+DAtest_gm1yr_del_full <- rio::import("../results/RS09_1.siblings_Venn/DAtest_gm1yr_oldchild_full.csv") %>% dplyr::select(-V1) %>% dplyr::select(logFC,pval,pval.adj,species) %>% filter(species %in% Venn1yr_del) %>% rename_with(~paste0(.x, "_delivery"))
+
+DAtest_gm1yr_con_full <-  rio::import("../results/RS03_1.DA/DAtest_gm1yr_con_full_adj_for_delivery.csv") %>% dplyr::select(logFC,pval,pval.adj,species) %>% filter(species %in% Venn1yr_del) %>% rename_with(~paste0(.x, "_csscore"))
+DAtest_gm1yr_con_full$Visit <- "1 year"
+
+DA_gm1yr_venn_del <- DAtest_gm1yr_con_full %>% left_join(DAtest_gm1yr_del_full, by = c("species_csscore" = "species_delivery"))
+DA_gm1yr_venn_del_label <- DA_gm1yr_venn_del %>% dplyr::filter(species_csscore %in% c("Clostridium_perfringens", "Bifidobacterium_longum", "Bifidobacterium_pseudocatenulatum","Bacteroides_fragilis","Bacteroides_vulgatus","Bacteroides_dorei"))
+
+
+DA_gm3t_Venn_qua_del <- DA_gm1wk_venn_del %>% rbind(DA_gm1mon_venn_del) %>% rbind(DA_gm1yr_venn_del)
+DA_gm3t_Venn_qua_del$Visit <- factor(DA_gm3t_Venn_qua_del$Visit, levels = c("1 week","1 month","1 year"))
+
+DA_gm3t_Venn_qua_del_label <- DA_gm3t_Venn_qua_del %>% dplyr::filter(species_csscore %in% c("Clostridium_perfringens", "Bifidobacterium_longum", "Bifidobacterium_pseudocatenulatum","Bacteroides_fragilis","Bacteroides_vulgatus","Bacteroides_dorei"))
+DA_gm3t_Venn_qua_del_label$Visit <- factor(DA_gm3t_Venn_qua_del_label$Visit, levels = c("1 week", "1 month", "1 year"))
+
+p <- DA_gm3t_Venn_qua_del %>% 
+  ggplot() +
+  geom_point(aes(x = logFC_csscore, y = logFC_delivery), color = "blue", size = 2) +  
+  facet_wrap(~Visit) +
+  xlim(c(-0.7, 0.7)) +
+  ylim(c(-1, 1)) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.5) +
+  geom_text_repel(
+    data = DA_gm3t_Venn_qua_del_label,  
+    aes(x = logFC_csscore, y = logFC_delivery, label = species_csscore),  
+    box.padding = unit(0.5, "lines"),  
+    point.padding = unit(1.0, "lines"),  
+    segment.color = 'grey50', 
+    fill = 'white',  
+    color = 'black',  
+    fontface = 'bold',  
+    size = 4, 
+    force = 5,  
+    max.overlaps = Inf,  
+    min.segment.length = 1  
+  ) +
+  theme_classic() +
+  theme(
+    text = element_text(size = 12, family = "Arial"),  
+    plot.title = element_text(face = "bold"),  
+    plot.subtitle = element_text(face = "italic"),  
+    axis.title = element_text(size = 14),  
+    axis.text = element_text(size = 12), 
+    strip.text = element_text(size = 14, face = "bold")  
+  );p
+
+plotname1 <- paste0(outpath, "/Venn_qudraplot_delivery.png",sep = "")
+ggsave(plotname1, p, width = 21, height = 7, limitsize = TRUE)
+
+save(p, file = paste0(outpath, "/Venn_quadraplot_delivery.RData"))
+
+
+```

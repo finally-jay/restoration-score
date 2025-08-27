@@ -1,0 +1,621 @@
+---
+title: "RS03.DAtest"
+author: "Jay"
+date: "2024-02-28"
+output: html_document
+---
+
+This is the 3rd part of the paper titled:
+Early gut taxa associate with 1-year restoration score
+
+Method:
+limma(Linear Models for Microarray Data):to fit a linear model to the expression data for each "expression"
+LIMMA log #2 in DAtest: preprocess the data using TSS first and Log transformation after
+
+Here:
+1. DAtest on gut microbiome
+  a. at 1 week 
+    1.continuous outcome on full dataset and in CS stratum
+    2.continuous outcome on full dataset adjust for delivery
+  b. at 1 month
+    1.continuous outcome on full dataset and in CS stratum
+    2.continuous outcome on full dataset adjust for delivery
+Output: Forest plot
+
+
+#set outpath
+```{r}
+outpath <- "../results/RS03_1.DA"
+dir.create(outpath)
+```
+
+
+#load packages
+```{r}
+library(phyloseq)
+library(copiome)
+library(DAtest)
+library(magrittr)
+library(ggplot2)
+library(dplyr)
+source("../jay_small_functions/DAtest.vcnpl.R")
+load("../data/phy_3timepoints_restoration_score.rdata")
+phy_3timepoints@sam_data$restoration_score <- scale(phy_3timepoints@sam_data$restoration_score)
+
+```
+
+
+# in cs stratum
+## at 1 week
+```{r}
+ps <- phy_3timepoints %>% subset_samples(Visit == "1 week" & !restoration_score %in% c(NA) & delivery == "c_section") %>% 
+  speedyseq::tax_glom("species") %>% filter_phy(prevalence = .1, abundance = 1e-4,compositional = FALSE)
+
+
+name_clean <- tax_df(ps)$species %>% gsub("\\[|\\]", "", .) %>% gsub(" ","_",.) %>% gsub("-","_",.) %>% gsub("^_","",.) %>% gsub("^[0-9]","a\\",.)
+tax_table(ps) <- as(tax_table(ps), "matrix") %>% as.data.frame() %>% dplyr::mutate(species = name_clean) %>% as(., "matrix")
+ps_sort_1wk_cs <- ps %>% make_mradat() %>% dplyr::arrange(mra)
+
+final<-DA.lli2(ps, predictor = "restoration_score", covars = c("Reads"),p.adj = "fdr")
+n_test_1wk_cs <- nrow(final)
+
+
+final %>% dplyr::filter(pval.adj < 0.05)
+
+DAtest_gm1wk_con_cs <- final
+tablename1 <- paste0(outpath,"/DAtest_gm1wk_con_cs.csv", sep = "")
+write.csv(DAtest_gm1wk_con_cs,tablename1)
+
+
+df <- DAtest_gm1wk_con_cs %>%
+  mutate(significance = case_when(
+    pval.adj < 0.05 ~ "Significant by adj. p-val",
+    pval < 0.05 & pval.adj >= 0.05 ~ "Significant by p-val only",
+    TRUE ~ "Not Significant"
+  )) %>%
+  filter(pval < 0.05) %>%  # Keep species significant by at least unadjusted p-value
+  arrange(desc(abs(logFC)))  # Order by absolute LogFC
+
+p <- ggplot(df, aes(x = reorder(species, logFC), y = logFC, fill = significance)) +
+  geom_col(show.legend = TRUE) +
+  coord_flip() +
+  scale_fill_manual(values = c("Significant by adj. p-val" = "red", 
+                               "Significant by p-val only" = "orange", 
+                               "Not Significant" = "grey"), 
+                    name = "Significance Level") +
+  labs(title = "DAtest on 1 week gut microbome in cs stratum VS CS score",
+       x = NULL,
+       y = "Log Fold Change") +
+  theme_minimal();p
+
+plotname1 <- paste0(outpath, "/DAtest_gm1wk_con_waterfall_cs.png",sep = "")
+ggsave(plotname1, p, width = 10, height = 4, limitsize = TRUE)
+
+```
+## at 1 month
+```{r}
+
+ps <- phy_3timepoints %>% subset_samples(Visit == "1 month" & !restoration_score %in% c(NA) & delivery == "c_section") %>% 
+  speedyseq::tax_glom("species") %>% filter_phy(prevalence = .1, abundance = 1e-4,compositional = FALSE)
+
+
+name_clean <- tax_df(ps)$species %>% gsub("\\[|\\]", "", .) %>% gsub(" ","_",.) %>% gsub("-","_",.) %>% gsub("^_","",.) %>% gsub("^[0-9]","a\\",.)
+tax_table(ps) <- as(tax_table(ps), "matrix") %>% as.data.frame() %>% dplyr::mutate(species = name_clean) %>% as(., "matrix")
+ps_sort_1mon_cs <- ps %>% make_mradat() %>% dplyr::arrange(mra)
+
+final<-DA.lli2(ps, predictor = "restoration_score", covars = c("Reads"),p.adj = "fdr")
+n_test_1mon_cs <- nrow(final)
+
+DAtest_gm1mon_con_cs <- final
+tablename1 <- paste0(outpath,"/DAtest_gm1mon_con_cs.csv", sep = "")
+write.csv(DAtest_gm1mon_con_cs,tablename1)
+
+
+source("../jay_small_functions/DAtest.vcnpl.R")
+p <- DAtest.vcnpl(final,font.size = 2.5,stressed_point = NULL);p
+
+plotname1 <- paste0(outpath, "/DAtest_gm1mon_con_cs.png",sep = "")
+ggsave(plotname1, p, width = 8, height = 6, limitsize = TRUE)
+
+
+df <- DAtest_gm1mon_con_cs %>%
+  mutate(significance = case_when(
+    pval.adj < 0.05 ~ "Significant by adj. p-val",
+    pval < 0.05 & pval.adj >= 0.05 ~ "Significant by p-val only",
+    TRUE ~ "Not Significant"
+  )) %>%
+  filter(pval < 0.05) %>%  # Keep species significant by at least unadjusted p-value
+  arrange(desc(abs(logFC)))  # Order by absolute LogFC
+
+p <- ggplot(df, aes(x = reorder(species, logFC), y = logFC, fill = significance)) +
+  geom_col(show.legend = TRUE) +
+  coord_flip() +
+  scale_fill_manual(values = c("Significant by adj. p-val" = "red", 
+                               "Significant by p-val only" = "orange", 
+                               "Not Significant" = "grey"), 
+                    name = "Significance Level") +
+  labs(title = "DAtest on 1 month gut microbome in CS stratum VS CS score",
+       x = NULL,
+       y = "Log Fold Change") +
+  theme_minimal();p
+
+plotname1 <- paste0(outpath, "/DAtest_gm1mon_con_waterfall_cs.png",sep = "")
+ggsave(plotname1, p, width = 10, height = 2, limitsize = TRUE)
+```
+
+## at 1 year
+```{r}
+
+ps <- phy_3timepoints %>% subset_samples(Visit == "1 year" & !restoration_score %in% c(NA) & delivery == "c_section") %>% 
+  speedyseq::tax_glom("species") %>% filter_phy(prevalence = .1, abundance = 1e-4,compositional = FALSE)
+
+
+name_clean <- tax_df(ps)$species %>% gsub("\\[|\\]", "", .) %>% gsub(" ","_",.) %>% gsub("-","_",.) %>% gsub("^_","",.) %>% gsub("^[0-9]","a\\",.)
+tax_table(ps) <- as(tax_table(ps), "matrix") %>% as.data.frame() %>% dplyr::mutate(species = name_clean) %>% as(., "matrix")
+ps_sort_1yr_cs <- ps %>% make_mradat() %>% dplyr::arrange(mra)
+
+
+final<-DA.lli2(ps, predictor = "restoration_score", covars = c("Reads"),p.adj = "fdr")
+n_test_1yr_cs <- nrow(final)
+
+DAtest_gm1yr_con_cs <- final
+tablename1 <- paste0(outpath,"/DAtest_gm1yr_con_cs.csv", sep = "")
+write.csv(DAtest_gm1yr_con_cs,tablename1)
+
+df <- DAtest_gm1yr_con_cs %>%
+  mutate(significance = case_when(
+    pval.adj < 0.05 ~ "Significant by adj. p-val",
+    pval < 0.05 & pval.adj >= 0.05 ~ "Significant by p-val only",
+    TRUE ~ "Not Significant"
+  )) %>%
+  filter(pval < 0.05) %>%  # Keep species significant by at least unadjusted p-value
+  arrange(desc(abs(logFC)))  # Order by absolute LogFC
+
+p <- ggplot(df, aes(x = reorder(species, logFC), y = logFC, fill = significance)) +
+  geom_col(show.legend = TRUE) +
+  coord_flip() +
+  scale_fill_manual(values = c("Significant by adj. p-val" = "red", 
+                               "Significant by p-val only" = "orange", 
+                               "Not Significant" = "grey"), 
+                    name = "Significance Level") +
+  labs(title = "DAtest on 1 year gut microbome in CS stratum VS CS score",
+       x = NULL,
+       y = "Log Fold Change") +
+  theme_minimal();p
+
+plotname1 <- paste0(outpath, "/DAtest_gm1yr_con_waterfall_cs.png",sep = "")
+ggsave(plotname1, p, width = 10, height = 8, limitsize = TRUE)
+
+```
+
+##merge the results and plot together, continuous score, in cs stratum
+```{r}
+DAtest_gm1wk_con_cs <- rio::import("../results/RS03.DA/DAtest_gm1wk_con_cs.csv") %>% dplyr::select(-V1)
+DAtest_gm1mon_con_cs <- rio::import("../results/RS03.DA/DAtest_gm1mon_con_cs.csv") %>% dplyr::select(-V1)
+
+DAtest_gm1wk_con_cs$Visit = "1 week"
+DAtest_gm1mon_con_cs$Visit = "1 month"
+
+DAtest_gm3t_con_cs <- DAtest_gm1wk_con_cs %>% rbind(DAtest_gm1mon_con_cs) #%>% rbind(DAtest_gm1yr_con_cs)
+da_bac_1wk_cs <- DAtest_gm1wk_con_cs %>% dplyr::filter(pval<0.05) %>% .$species
+da_bac_1mon_cs <- DAtest_gm1mon_con_cs %>% dplyr::filter(pval<0.05) %>% .$species
+
+DAtest_gm3t_con_cs$Visit <- factor(DAtest_gm3t_con_cs$Visit, levels = c("1 week","1 month"))
+df <- DAtest_gm3t_con_cs %>%
+  mutate(significance = case_when(
+    pval.adj < 0.05 ~ "Significant by FDR adjusted P value",
+    pval < 0.05 & pval.adj >= 0.05 ~ "Significant by nominal P value",
+    TRUE ~ "Not Significant"
+  )) %>%
+  filter(species %in% c(da_bac_1wk_cs,da_bac_1mon_cs))
+
+ps_sort_1wk_cs <- ps_sort_1wk_cs %>% dplyr::filter(species %in% c(da_bac_1wk_cs,da_bac_1mon_cs)) %>% dplyr::select(species,mra,prevalence)
+ps_sort_1mon_cs <- ps_sort_1mon_cs %>% dplyr::filter(species %in% c(da_bac_1wk_cs,da_bac_1mon_cs)) %>% dplyr::select(species,mra,prevalence)
+
+ps_sort_1wk_cs$Visit = "1 week"
+ps_sort_1mon_cs$Visit = "1 month"
+
+ps_sort_3t_cs <- ps_sort_1wk_cs %>% rbind(ps_sort_1mon_cs) #%>% rbind(ps_sort_1yr_cs)
+
+df_plot <- ps_sort_3t_cs %>% dplyr::left_join(df, by = c("species","Visit"))
+
+
+df_plot$Visit <- factor(df_plot$Visit, levels = c("1 week","1 month"))
+
+
+test_dfplot <- df_plot %>% dplyr::group_by(Visit) %>% 
+  dplyr::mutate(
+    mra_y = max(logFC,na.rm = TRUE) * 1.5,
+    prev_y = mra_y+0.2)
+
+
+test_dfplot$mra_y[test_dfplot$Visit == "1 month"] <- test_dfplot$mra_y[test_dfplot$Visit == "1 month"] +0.1
+test_dfplot$prev_y[test_dfplot$Visit == "1 month"] <- test_dfplot$prev_y[test_dfplot$Visit == "1 month"] +0.1
+test_dfplot$species <- gsub("_", " ", test_dfplot$species)
+
+
+my_colors <- c("Significant by FDR adjusted P value" = "#EF5350", 
+               "Significant by nominal P value" = "#FFA726",
+               "Not Significant" = "#808080")
+
+
+
+
+p <- ggplot(test_dfplot, aes(x = reorder(species, mra), y = logFC, fill = significance)) +
+
+  geom_col(show.legend = TRUE) +
+  facet_grid(~Visit, scales = "free_y")+
+  geom_text(aes(y = mra_y, label = paste0(sprintf("%.1f", mra*100), "%")), position = position_dodge(width = 0.95), size = 3.5, color = "black") +
+  geom_text(aes(x = species,y = prev_y, label = paste0(sprintf("%.1f", prevalence*100), "%")),inherit.aes = FALSE, position = position_dodge(width = 0.95), size = 3.5, color = "black")+
+
+  coord_flip()+
+  scale_fill_manual(values = my_colors, name = "Significance Level") +
+  labs(title = NULL,
+       x = NULL,
+       y = "Log Fold Change") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 12, face = "italic"),
+        panel.spacing.x = unit(1,"lines"),
+        axis.title.y = element_text(vjust = 2, size = 14),
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+        legend.position = "bottom",
+        legend.text = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        strip.background = element_rect(fill = "gray90", color = "gray90"),
+        strip.text.x = element_text(size = 12, face = "bold"));p
+
+
+wk1_y_mra <- test_dfplot %>% dplyr::filter(Visit == "1 week") %>% .[1,"mra_y"] %>% as.numeric()
+mon1_y_mra <- test_dfplot %>% dplyr::filter(Visit == "1 month") %>% .[1,"mra_y"] %>% as.numeric()
+
+
+wk1_y_end <- test_dfplot %>% dplyr::filter(Visit == "1 week") %>% .[1,"prev_y"] %>% as.numeric()
+mon1_y_end <- test_dfplot %>% dplyr::filter(Visit == "1 month") %>% .[1,"prev_y"] %>% as.numeric()
+
+cs_wk1_y_mra <- wk1_y_mra
+cs_mon1_y_mra <- mon1_y_mra
+
+cs_wk1_y_end <-  wk1_y_end+0.05
+cs_mon1_y_end <-  mon1_y_end+0.05
+
+
+
+
+df_text_numoftest_cs <- data.frame(n_test = c(n_test_1wk_cs,n_test_1mon_cs),
+                                   x = c(12,12),
+                                   y = c((-0.4+wk1_y_end+0.05)/2,(-0.3+mon1_y_end+0.05)/2),
+                                   Visit = c("1 week","1 month"))
+df_text_numoftest_cs$Visit <- factor(df_text_numoftest_cs$Visit, levels = c("1 week", "1 month"))
+
+
+
+source("../jay_small_functions/CustomFacetGrid.R")
+p2 <- p +
+  facet_grid_custom(~Visit, scales = "free_x",space = "free_x", scale_overrides = list(
+    scale_override(1, scale_y_continuous(limits = c(-0.4,wk1_y_end+0.05),breaks = c(-0.4,0,0.2,wk1_y_mra,wk1_y_end),labels = c(-0.4,0,0.2,"Mean\nrelative abundance","Prevalance"))),
+    scale_override(2, scale_y_continuous(limits = c(-0.3,mon1_y_end+0.05),breaks = c(-0.3,0,0.1,mon1_y_mra,mon1_y_end),labels = c(-0.3,0,0.1,"Mean\nrelative abundance","Prevalence")))))+
+  geom_text(data = df_text_numoftest_cs, aes(x = x, y = y, label = paste0("Number of tests: ", n_test)), inherit.aes = FALSE,vjust = 1.1)+
+  theme(axis.text.x = element_text(size = 14,angle = 45, vjust = 0.5),
+        axis.text.y = element_text(size=14));p2
+
+plotname1 <- paste0(outpath, "/DAtest_gm3t_scaled_score_cs.pdf",sep = "")
+ggsave(plotname1, p2, width = 13, height = 5, limitsize = TRUE)
+save(p2, file = paste0(outpath, "/DAtest_gm3t_scaled_score_cs.RData"))
+```
+
+
+
+# in full cohort
+## at 1 week
+### continuous outcome, full dataset, adj for delivery
+```{r}
+ps <- phy_3timepoints %>% subset_samples(Visit == "1 week" & !restoration_score %in% c(NA)) %>% 
+  speedyseq::tax_glom("species") %>% filter_phy(prevalence = .1, abundance = 1e-4,compositional = FALSE)
+
+
+name_clean <- tax_df(ps)$species %>% gsub("\\[|\\]", "", .) %>% gsub(" ","_",.) %>% gsub("-","_",.) %>% gsub("^_","",.) %>% gsub("^[0-9]","a\\",.)
+tax_table(ps) <- as(tax_table(ps), "matrix") %>% as.data.frame() %>% dplyr::mutate(species = name_clean) %>% as(., "matrix")
+
+ps_sort_1wk <- ps %>% make_mradat() %>% dplyr::arrange(mra)
+
+
+final<-DA.lli2(ps, predictor = "restoration_score", covars = c("Reads", "delivery"),p.adj = "fdr")
+n_test_1wk <- nrow(final)
+
+
+final %>% dplyr::filter(pval.adj < 0.05)
+
+
+DAtest_gm1wk_con_full_adj_for_delivery <- final
+tablename1 <- paste0(outpath,"/DAtest_gm1wk_con_full_adj_for_delivery.csv", sep = "")
+write.csv(DAtest_gm1wk_con_full_adj_for_delivery,tablename1)
+
+
+df <- DAtest_gm1wk_con_full_adj_for_delivery %>%
+  mutate(significance = case_when(
+    pval.adj < 0.05 ~ "Significant by adj. p-val",
+    pval < 0.05 & pval.adj >= 0.05 ~ "Significant by p-val only",
+    TRUE ~ "Not Significant"
+  )) %>%
+  filter(pval < 0.05) %>%  # Keep species significant by at least unadjusted p-value
+  arrange(desc(abs(logFC)))  # Order by absolute LogFC
+
+p <- ggplot(df, aes(x = reorder(species, logFC), y = logFC, fill = significance)) +
+  geom_col(show.legend = TRUE) +
+  coord_flip() +
+  scale_fill_manual(values = c("Significant by adj. p-val" = "red", 
+                               "Significant by p-val only" = "orange", 
+                               "Not Significant" = "grey"), 
+                    name = "Significance Level") +
+  labs(title = "DAtest on 1 week gut microbome VS restoration score",
+       x = NULL,
+       y = "Log Fold Change") +
+  theme_minimal();p
+
+plotname1 <- paste0(outpath, "/DAtest_gm1wk_con_full_adj_for_delivery_waterfall.png",sep = "")
+ggsave(plotname1, p, width = 10, height = 8, limitsize = TRUE)
+
+```
+
+
+## at 1 month
+### continuous outcome, full dataset adj for delivery
+```{r}
+
+ps <- phy_3timepoints %>% subset_samples(Visit == "1 month" & !restoration_score %in% c(NA)) %>% 
+  speedyseq::tax_glom("species") %>% filter_phy(prevalence = .1, abundance = 1e-4,compositional = FALSE)
+
+
+name_clean <- tax_df(ps)$species %>% gsub("\\[|\\]", "", .) %>% gsub(" ","_",.) %>% gsub("-","_",.) %>% gsub("^_","",.) %>% gsub("^[0-9]","a\\",.)
+tax_table(ps) <- as(tax_table(ps), "matrix") %>% as.data.frame() %>% dplyr::mutate(species = name_clean) %>% as(., "matrix")
+ps_sort_1mon <- ps %>% make_mradat() %>% dplyr::arrange(mra)
+
+
+final<-DA.lli2(ps, predictor = "restoration_score", covars = c("Reads","delivery"),p.adj = "fdr")
+n_test_1mon <- nrow(final)
+
+DAtest_gm1mon_con_full_adj_for_delivery <- final
+tablename1 <- paste0(outpath,"/DAtest_gm1mon_con_full_adj_for_delivery.csv", sep = "")
+write.csv(DAtest_gm1mon_con_full_adj_for_delivery,tablename1)
+
+
+df <- DAtest_gm1mon_con_full_adj_for_delivery %>%
+  mutate(significance = case_when(
+    pval.adj < 0.05 ~ "Significant by adj. p-val",
+    pval < 0.05 & pval.adj >= 0.05 ~ "Significant by p-val only",
+    TRUE ~ "Not Significant"
+  )) %>%
+  filter(pval < 0.05) %>%  # Keep species significant by at least unadjusted p-value
+  arrange(desc(abs(logFC)))  # Order by absolute LogFC
+
+p <- ggplot(df, aes(x = reorder(species, logFC), y = logFC, fill = significance)) +
+  geom_col(show.legend = TRUE) +
+  coord_flip() +
+  scale_fill_manual(values = c("Significant by adj. p-val" = "red", 
+                               "Significant by p-val only" = "orange", 
+                               "Not Significant" = "grey"), 
+                    name = "Significance Level") +
+  labs(title = "DAtest on 1 month gut microbome VS CS score",
+       x = NULL,
+       y = "Log Fold Change") +
+  theme_minimal();p
+
+plotname1 <- paste0(outpath, "/DAtest_gm1mon_con_full_adj_for_delivery_waterfall.png",sep = "")
+ggsave(plotname1, p, width = 10, height = 4, limitsize = TRUE)
+
+
+```
+
+
+
+
+
+## merge the results and plot together, continuous score, full dataset, adjust for delivery
+```{r}
+DAtest_gm1wk_con_full_adj_for_delivery <- rio::import("../results/RS03.DA/DAtest_gm1wk_con_full_adj_for_delivery.csv") %>% dplyr::select(-V1)
+DAtest_gm1mon_con_full_adj_for_delivery <- rio::import("../results/RS03.DA/DAtest_gm1mon_con_full_adj_for_delivery.csv") %>% dplyr::select(-V1)
+
+DAtest_gm1wk_con_full_adj_for_delivery$Visit = "1 week"
+DAtest_gm1mon_con_full_adj_for_delivery$Visit = "1 month"
+
+DAtest_gm3t_con_full_adj_for_delivery <- DAtest_gm1wk_con_full_adj_for_delivery %>% 
+  rbind(DAtest_gm1mon_con_full_adj_for_delivery) %>% 
+  dplyr::select(species,logFC,pval,pval.adj,Visit)
+
+da_bac_1wk <- DAtest_gm1wk_con_full_adj_for_delivery %>% dplyr::filter(pval<0.05) %>% .$species
+da_bac_1mon <- DAtest_gm1mon_con_full_adj_for_delivery %>% dplyr::filter(pval<0.05) %>% .$species
+
+ps_sort_1wk <- ps_sort_1wk %>% dplyr::filter(species %in% c(da_bac_1wk,da_bac_1mon)) %>% dplyr::select(species,mra,prevalence)
+ps_sort_1mon <- ps_sort_1mon %>% dplyr::filter(species %in% c(da_bac_1wk,da_bac_1mon)) %>% dplyr::select(species,mra,prevalence)
+
+ps_sort_1wk$Visit = "1 week"
+ps_sort_1mon$Visit = "1 month"
+
+ps_sort_3t <- ps_sort_1wk %>% rbind(ps_sort_1mon) #%>% rbind(ps_sort_1yr)
+
+df <- DAtest_gm3t_con_full_adj_for_delivery %>%
+  dplyr::mutate(significance = dplyr::case_when(
+    pval.adj < 0.05 ~ "Significant by FDR adjusted P value",
+    pval < 0.05 & pval.adj >= 0.05 ~ "Significant by nominal P value",
+    TRUE ~ "Not Significant"
+  )) %>%
+  dplyr::filter(species %in% c(da_bac_1wk,da_bac_1mon))
+
+df_plot <- ps_sort_3t %>% dplyr::left_join(df, by = c("species","Visit"))
+
+
+test_dfplot <- df_plot %>% dplyr::group_by(Visit) %>% 
+  dplyr::mutate(
+    mra_y = max(logFC,na.rm = TRUE) * 1.3,
+    prev_y = mra_y +0.1) %>% ungroup
+
+test_dfplot_1 <- test_dfplot
+
+my_colors <- c("Significant by FDR adjusted P value" = "#EF5350", 
+               "Significant by nominal P value" = "#FFA726",
+               "Not Significant" = "#808080")
+
+
+test_dfplot$Visit <- factor(test_dfplot$Visit, levels = c("1 week","1 month"))
+test_dfplot$species <- gsub("_"," ", test_dfplot$species)
+
+p <- ggplot(test_dfplot, aes(x = reorder(species, mra), y = logFC, fill = significance)) +
+    facet_grid(~Visit)+
+  geom_col(show.legend = TRUE) +
+  geom_text(aes(y = mra_y, label = paste0(sprintf("%.1f", mra*100), "%")), position = position_dodge(width = 0.95), size = 3.5, color = "black") +
+  geom_text(aes(x = species,y = prev_y, label = paste0(sprintf("%.1f", prevalence*100), "%")),inherit.aes = FALSE, position = position_dodge(width = 0.95), size = 3.5, color = "black")+
+
+  coord_flip()+
+  scale_fill_manual(values = my_colors, name = "Significance Level") +
+  labs(title = NULL,
+       x = NULL,
+       y = "Log Fold Change") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 12, face = "italic"),
+        panel.spacing.x = unit(1,"lines"),
+        axis.title.y = element_text(vjust = 2, size = 14),
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+        legend.position = "bottom",
+        legend.text = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        strip.background = element_rect(fill = "gray90", color = "gray90"),
+        strip.text.x = element_text(size = 12, face = "bold"));p
+
+wk1_y_mra <- test_dfplot %>% dplyr::filter(Visit == "1 week") %>% .[1,"mra_y"] %>% as.numeric()
+mon1_y_mra <- test_dfplot %>% dplyr::filter(Visit == "1 month") %>% .[1,"mra_y"] %>% as.numeric()
+
+wk1_y_end <- test_dfplot %>% dplyr::filter(Visit == "1 week") %>% .[1,"prev_y"] %>% as.numeric()
+mon1_y_end <- test_dfplot %>% dplyr::filter(Visit == "1 month") %>% .[1,"prev_y"] %>% as.numeric()
+
+df_text_numoftest <- data.frame(n_test = c(n_test_1wk,n_test_1mon),
+                                   x = c(36,36),
+                                   y = c((-0.4+cs_wk1_y_end)/2,(-0.3+cs_mon1_y_end)/2),
+                                   Visit = c("1 week","1 month"))
+df_text_numoftest$Visit <- factor(df_text_numoftest$Visit, levels = c("1 week", "1 month"))
+
+
+source("../jay_small_functions/CustomFacetGrid.R")
+p1 <- p +
+  facet_grid_custom(~Visit, scales = "free_x",space = "free_x", scale_overrides = list(
+    scale_override(1, scale_y_continuous(limits = c(-0.4,cs_wk1_y_end),breaks = c(-0.4,0,0.2,cs_wk1_y_mra,cs_wk1_y_end),labels = c(-0.4,0,0.2,"Mean\nrelative abundance","Prevalance"))),
+    scale_override(2, scale_y_continuous(limits = c(-0.3,cs_mon1_y_end),breaks = c(-0.3,0,0.1,cs_mon1_y_mra,cs_mon1_y_end),labels = c(-0.3,0,0.1,"Mean\nrelative abundance","Prevalence")))))+
+  geom_text(data = df_text_numoftest, aes(x = x, y = y, label = paste0("Number of tests: ", n_test)), inherit.aes = FALSE,vjust = 1.1)+
+  theme(axis.text.x = element_text(size = 14,angle = 45, vjust = 0.5),
+        axis.text.y = element_text(size = 14));p1
+
+   
+   
+plotname1 <- paste0(outpath, "/DAtest_gm2t_scaled_score.pdf",sep = "")
+ggsave(plotname1, p1,height = 9, width = 13)
+
+save(p1, file = paste0(outpath, "/DAtest_gm2t_scaled_score.RData"))
+
+```
+
+
+
+
+
+
+#plot them together
+```{r}
+DAtest_gm1wk_con_full_adj_for_delivery <- rio::import("../results/RS03.DA/DAtest_gm1wk_con_full_adj_for_delivery.csv") %>% dplyr::select(-V1)
+DAtest_gm1mon_con_full_adj_for_delivery <- rio::import("../results/RS03.DA/DAtest_gm1mon_con_full_adj_for_delivery.csv") %>% dplyr::select(-V1)
+
+DAtest_gm1wk_con_full_adj_for_delivery$Visit = "1 week"
+DAtest_gm1mon_con_full_adj_for_delivery$Visit = "1 month"
+
+DAtest_gm3t_con_full_adj_for_delivery <- DAtest_gm1wk_con_full_adj_for_delivery %>% 
+  rbind(DAtest_gm1mon_con_full_adj_for_delivery) %>% 
+  dplyr::select(species,logFC,pval,pval.adj,Visit) %>% 
+  filter(species %in% c(da_bac_1wk,da_bac_1mon))
+
+DAtest_gm3t_con_full_adj_for_delivery$Cohort <- "In full cohort"
+
+
+DAtest_gm1wk_con_cs <- rio::import("../results/RS03.DA/DAtest_gm1wk_con_cs.csv") %>% dplyr::select(-V1)
+DAtest_gm1mon_con_cs <- rio::import("../results/RS03.DA/DAtest_gm1mon_con_cs.csv") %>% dplyr::select(-V1)
+
+DAtest_gm1wk_con_cs$Visit = "1 week"
+DAtest_gm1mon_con_cs$Visit = "1 month"
+
+DAtest_gm3t_con_cs <- DAtest_gm1wk_con_cs %>% 
+  rbind(DAtest_gm1mon_con_cs) %>% 
+  dplyr::select(species,logFC,pval,pval.adj,Visit) %>%
+  filter(species %in% c(da_bac_1wk_cs,da_bac_1mon_cs))
+
+
+DAtest_gm3t_con_cs$Cohort <- "In the CS stratum"
+
+
+DAtest_gm3t <- DAtest_gm3t_con_full_adj_for_delivery %>% rbind(DAtest_gm3t_con_cs)
+
+ps_sort_1wk$Cohort = "In full cohort"
+ps_sort_1mon$Cohort = "In full cohort"
+
+ps_sort_1wk_cs$Cohort = "In the CS stratum"
+ps_sort_1mon_cs$Cohort = "In the CS stratum"
+
+ps_sort <- ps_sort_1wk %>% 
+  rbind(ps_sort_1mon) %>% 
+  rbind(ps_sort_1wk_cs) %>% 
+  rbind(ps_sort_1mon_cs)
+
+
+df_plot <- ps_sort %>% dplyr::left_join(DAtest_gm3t, by = c("species","Visit","Cohort"))
+
+df_plot$Visit <- factor(df_plot$Visit, levels = c("1 week","1 month"))
+
+
+df_plot <- df_plot %>%
+  mutate(significance = case_when(
+    pval.adj < 0.05 ~ "Significant by FDR adjusted P value",
+    pval < 0.05 & pval.adj >= 0.05 ~ "Significant by nominal P value",
+    TRUE ~ "Not Significant"
+  )) 
+
+test_dfplot <- df_plot %>% dplyr::group_by(Visit,Cohort) %>% 
+  dplyr::mutate(
+    mra_y = max(logFC,na.rm = TRUE) * 1.5 + 0.05,
+    prev_y = mra_y+0.2)
+
+
+test_dfplot$species <- gsub("_", " ", test_dfplot$species)
+my_colors <- c("Significant by FDR adjusted P value" = "#EF5350", 
+               "Significant by nominal P value" = "#FFA726",
+               "Not Significant" = "#808080")
+
+
+
+p <- ggplot(test_dfplot, aes(x = reorder(species, mra), y = logFC, fill = significance)) +
+  geom_col(show.legend = TRUE) +
+  facet_grid(rows = vars(Cohort), cols = vars(Visit))+
+  geom_text(aes(y = mra_y, label = paste0(sprintf("%.2f", mra*100), "%")), position = position_dodge(width = 0.95), size = 3.5, color = "black") +
+  geom_text(aes(x = species,y = prev_y, label = paste0(sprintf("%.2f", prevalence*100), "%")),inherit.aes = FALSE, position = position_dodge(width = 0.95), size = 3.5, color = "black")+
+
+  coord_flip()+
+  scale_fill_manual(values = my_colors, name = "Significance Level") +
+  labs(title = NULL,
+       x = NULL,
+       y = "Log Fold Change") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 12, face = "italic"),
+        panel.spacing.x = unit(1,"lines"),
+        axis.title.y = element_text(vjust = 2, size = 14),
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+        legend.position = "bottom",
+        # legend.box.background = element_rect(color = "gray90", size = 0.5),
+        legend.text = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        strip.background = element_rect(fill = "gray90", color = "gray90"),
+        strip.text.x = element_text(size = 12, face = "bold"));p
+
+
+```
+

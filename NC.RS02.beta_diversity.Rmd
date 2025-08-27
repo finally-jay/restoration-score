@@ -1,0 +1,317 @@
+---
+title: "RS02.beta_diversity"
+author: "Jay"
+date: "2024-02-27"
+output: html_document
+---
+
+
+#set output path
+```{r}
+outpath <- "../results/RS02.beta_diversity"
+dir.create(outpath)
+```
+
+
+```{r,echo=FALSE}
+load("../data/phy_dist_sp.rdata")
+load("../data/phy_3timepoints_restoration_score.rdata")
+
+library(ggplot2)
+library(phyloseq)
+library(copiome)
+library(tidyverse)
+library(vegan)
+```
+
+
+#beta adnois2 at species level
+```{r}
+set.seed(123)
+visit <- c("1 week","1 month","1 year")
+dist <- c("phy_bray_d_sp","phy_jaccard_d_sp","phy_jsd_d_sp","phy_uf_d_sp","phy_wuf_d_sp")
+
+phy_3t <- phy_3timepoints %>% subset_samples(!restoration_score %in% c(NA))
+
+perm <- data.frame(
+  timepoint = character(),
+  distance = character(),
+  f = numeric(),
+  r2 = numeric(),
+  pval = numeric()
+)
+for(i in visit){
+  ps <- subset_samples(phy_3t, Visit == i)
+
+    distmatrix <- subset_dist(phy_bray_d_sp,ps)
+    ad <- adonis2(distmatrix~sample_df(ps)$restoration_score + sample_df(ps)$delivery,by = "margin")
+    perm <- rbind(perm, c(i,"bray",
+                          round(ad$F[1],3),
+                          round(ad$R2[1],3),
+                          ad$`Pr(>F)`[1]))
+  
+}
+
+for(i in visit){
+  ps <- subset_samples(phy_3t, Visit == i)
+
+    distmatrix <- subset_dist(phy_jaccard_d_sp,ps)
+    ad <- adonis2(distmatrix~sample_df(ps)$restoration_score + sample_df(ps)$delivery,by = "margin")
+    perm <- rbind(perm, c(i,"jaccard",
+                          round(ad$F[1],3),
+                          round(ad$R2[1],3),
+                          ad$`Pr(>F)`[1]))
+  
+}
+
+for(i in visit){
+  ps <- subset_samples(phy_3t, Visit == i)
+
+    distmatrix <- subset_dist(phy_jsd_d_sp,ps)
+    ad <- adonis2(distmatrix~sample_df(ps)$restoration_score + sample_df(ps)$delivery,by = "margin")
+    perm <- rbind(perm, c(i,"jsd",
+                          round(ad$F[1],3),
+                          round(ad$R2[1],3),
+                          ad$`Pr(>F)`[1]))
+  
+}
+
+for(i in visit){
+  ps <- subset_samples(phy_3t, Visit == i)
+
+    distmatrix <- subset_dist(phy_uf_d_sp,ps)
+    ad <- adonis2(distmatrix~sample_df(ps)$restoration_score + sample_df(ps)$delivery,by = "margin")
+    perm <- rbind(perm, c(i,"uf",
+                          round(ad$F[1],3),
+                          round(ad$R2[1],3),
+                          ad$`Pr(>F)`[1]))
+  
+}
+
+for(i in visit){
+  ps <- subset_samples(phy_3t, Visit == i)
+
+    distmatrix <- subset_dist(phy_wuf_d_sp,ps)
+    ad <- adonis2(distmatrix~sample_df(ps)$restoration_score + sample_df(ps)$delivery,by = "margin")
+    perm <- rbind(perm, c(i,"wuf",
+                          round(ad$F[1],3),
+                          round(ad$R2[1],3),
+                          ad$`Pr(>F)`[1]))
+  
+}
+
+colnames(perm) <- c("timepoints","distance_matrix","F","r2","pval")
+perm
+```
+
+
+
+###wuf
+```{r}
+ps <- phy_3t
+wuf_pval <- perm %>% dplyr::filter(distance_matrix == "wuf")
+
+distmatrix <- subset_dist(phy_wuf_d_sp, ps)
+ps_o <- ordinate(ps, "PCoA", distmatrix)
+var_value <- round(100*ps_o$values$Relative_eig,1)
+axis <- ps_o$vectors %>% as.data.frame
+
+axis$SampleID <- sample_data(phy_3t)$SampleID
+axis <- axis[order(match(axis[, "SampleID"], sample_df(phy_3t)[, "SampleID"])),]
+samp_vec <- dplyr::left_join(sample_df(phy_3t),axis, by = "SampleID")
+table(samp_vec$Visit) #to check sample size
+
+library(glue)
+shade_data <- data.frame(
+  Visit = "1 year",
+  xmin = -Inf,
+  xmax = Inf,
+  ymin = -Inf,
+  ymax = Inf
+) %>% 
+  mutate(Visit = factor(Visit, levels = c("1 week", "1 month", "1 year")))
+
+wuf <-  samp_vec %>% 
+        ggplot(aes(Axis.1, Axis.2, color = restoration_score_hl, fill = restoration_score_hl)) +
+        geom_rect(data = shade_data, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax), fill = "gray90", alpha = 0.3, inherit.aes = FALSE) +
+
+          geom_point() +
+          stat_ellipse(type = "norm",geom = "polygon",level = 0.68, alpha=.2,show.legend = FALSE)+
+          labs(x = glue("wUniFrac PCoA 1 ({var_value[1]})%"),
+               y = glue("wUniFrac PCoA 2 ({var_value[2]})%")) +
+          scale_color_manual(name = "1-year restoration score",
+                             breaks = c("Low", "High"),
+                             labels = c("Low", "High"),
+                             values = c("#D55E00","#0072B2"))+
+          scale_fill_manual(name = "1-year restoration score",
+                             breaks = c("Low", "High"),
+                             labels = c("Low", "High"),
+                             values = c("#D55E00","#0072B2"))+
+          facet_wrap(~ Visit)+
+          theme_classic()+
+          theme(
+            legend.key.size = unit(0.25, "cm"),
+            legend.position = "bottom",
+            strip.background = element_rect(colour = NA)
+      )
+
+text <- tibble(
+  Visit = factor(c("1 week","1 month","1 year"),levels = c("1 week","1 month","1 year")),
+  x = c(0.0,0.0,0.0),
+  y = c(0.4,0.4,0.4),
+  label.pval = print(paste("P.value = ", wuf_pval$pval)),
+)
+
+wuf <- wuf + geom_text(data = text, aes(x = x, y = y, label = label.pval), inherit.aes = FALSE)
+plotname1 = paste(outpath,"/beta_wuf_3t_cs_score_sp.pdf",sep = "")
+ggsave(plotname1, wuf,width = 10,height = 4,limitsize = TRUE)
+
+
+```
+
+
+
+
+#beta adnois2 at species level in CS stratum
+```{r}
+load("../data/phy_dist_sp_cs.rdata")
+
+visit <- c("1 week","1 month","1 year")
+dist <- c("phy_bray_d_sp_cs","phy_jaccard_d_sp_cs","phy_jsd_d_sp_cs","phy_uf_d_sp_cs","phy_wuf_d_sp_cs","phy_wufn_d_sp_cs")
+
+phy_3t <- phy_3timepoints %>% subset_samples(!restoration_score %in% c(NA) & delivery == "c_section")
+
+phy_3t@sam_data$restoration_score_hl_cs <- gtools::quantcut(phy_3t@sam_data$restoration_score, q = 2)
+phy_3t@sam_data$restoration_score_hl_cs <- ifelse(phy_3t@sam_data$restoration_score_hl_cs == levels(phy_3t@sam_data$restoration_score_hl_cs )[1], "Low","High") %>% 
+  factor(levels = c("Low","High"))
+
+
+perm <- data.frame(
+  timepoint = character(),
+  distance = character(),
+  f = numeric(),
+  r2 = numeric(),
+  pval = numeric()
+)
+for(i in visit){
+  ps <- subset_samples(phy_3t, Visit == i)
+
+    distmatrix <- subset_dist(phy_bray_d_sp_cs,ps)
+    ad <- adonis2(distmatrix~sample_df(ps)$restoration_score_hl_cs)
+    perm <- rbind(perm, c(i,"bray",round(ad$F[1],3),round(ad$R2[1],3),ad$`Pr(>F)`[1]))
+  
+}
+
+for(i in visit){
+  ps <- subset_samples(phy_3t, Visit == i)
+
+    distmatrix <- subset_dist(phy_jaccard_d_sp_cs,ps)
+    ad <- adonis2(distmatrix~sample_df(ps)$restoration_score_hl_cs)
+    perm <- rbind(perm, c(i,"jaccard",round(ad$F[1],3),round(ad$R2[1],3),ad$`Pr(>F)`[1]))
+  
+}
+
+for(i in visit){
+  ps <- subset_samples(phy_3t, Visit == i)
+
+    distmatrix <- subset_dist(phy_jsd_d_sp_cs,ps)
+    ad <- adonis2(distmatrix~sample_df(ps)$restoration_score_hl_cs)
+    perm <- rbind(perm, c(i,"jsd",round(ad$F[1],3),round(ad$R2[1],3),ad$`Pr(>F)`[1]))
+  
+}
+
+for(i in visit){
+  ps <- subset_samples(phy_3t, Visit == i)
+
+    distmatrix <- subset_dist(phy_uf_d_sp_cs,ps)
+    ad <- adonis2(distmatrix~sample_df(ps)$restoration_score_hl_cs)
+    perm <- rbind(perm, c(i,"uf",round(ad$F[1],3),round(ad$R2[1],3),ad$`Pr(>F)`[1]))
+  
+}
+
+for(i in visit){
+  ps <- subset_samples(phy_3t, Visit == i)
+
+    distmatrix <- subset_dist(phy_wuf_d_sp_cs,ps)
+    ad <- adonis2(distmatrix~sample_df(ps)$restoration_score_hl_cs)
+    perm <- rbind(perm, c(i,"wuf",round(ad$F[1],3),round(ad$R2[1],3),ad$`Pr(>F)`[1]))
+  
+}
+
+for(i in visit){
+  ps <- subset_samples(phy_3t, Visit == i)
+
+    distmatrix <- subset_dist(phy_wufn_d_sp_cs,ps)
+    ad <- adonis2(distmatrix~sample_df(ps)$restoration_score_hl_cs)
+    perm <- rbind(perm, c(i,"wufn",round(ad$F[1],3),round(ad$R2[1],3),ad$`Pr(>F)`[1]))
+  
+}
+
+
+colnames(perm) <- c("timepoints","distance_matrix","F","r2","pval")
+perm
+```
+
+
+
+###wuf
+```{r}
+ps <- phy_3t
+wuf_pval <- perm %>% dplyr::filter(distance_matrix == "wuf")
+
+samp_vec_cs <- samp_vec %>% dplyr::filter(delivery == "c_section")
+samp_vec_cs$restoration_score_hl_cs <- gtools::quantcut(samp_vec_cs$restoration_score,q = 2)
+samp_vec_cs$restoration_score_hl_cs <- ifelse(samp_vec_cs$restoration_score_hl_cs == levels(samp_vec_cs$restoration_score_hl_cs)[1], "Low","High") %>% 
+  factor(levels = c("Low","High"))
+
+
+library(glue)
+shade_data <- data.frame(
+  Visit = "1 year",
+  xmin = -Inf,
+  xmax = Inf,
+  ymin = -Inf,
+  ymax = Inf
+) %>% 
+  mutate(Visit = factor(Visit, levels = c("1 week", "1 month", "1 year")))
+
+wuf <-  samp_vec_cs %>% 
+        ggplot(aes(Axis.1, Axis.2, color = restoration_score_hl_cs, fill = restoration_score_hl_cs)) +
+          geom_rect(data = shade_data, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax), fill = "gray90", alpha = 0.3, inherit.aes = FALSE) +
+
+          geom_point() +
+          stat_ellipse(type = "norm",geom = "polygon",level = 0.68, alpha=.2,show.legend = FALSE)+
+          # coord_fixed(xlim = c(-0.35,0.35), ylim = c(-0.25,0.3))+
+          labs(x = glue("wUniFrac PCoA 1 ({var_value[1]})%"),
+               y = glue("wUniFrac PCoA 2 ({var_value[2]})%")) +
+          scale_color_manual(name = "1-year restoration score",
+                             breaks = c("Low", "High"),
+                             labels = c("Low", "High"),
+                             values = c("#D55E00","#0072B2"))+
+          scale_fill_manual(name = "1-year restoration score",
+                             breaks = c("Low", "High"),
+                             labels = c("Low", "High"),
+                             values = c("#D55E00","#0072B2"))+
+          facet_wrap(~ Visit)+
+          theme_classic()+
+          theme(
+            legend.key.size = unit(0.25, "cm"),
+            legend.position = "bottom",
+            strip.background = element_rect(colour = NA)
+          )
+
+text <- tibble(
+  Visit = factor(c("1 week","1 month","1 year"),levels = c("1 week","1 month","1 year")),
+  x = c(0.0,0.0,0.0),
+  y = c(0.45,0.45,0.45),
+  label.pval = print(paste("P.value = ", wuf_pval$pval)),
+)
+
+wuf <- wuf + geom_text(data = text, aes(x = x, y = y, label = label.pval), inherit.aes = FALSE)
+plotname1 = paste(outpath,"/beta_wuf_3t_cs_score_sp_cs.pdf",sep = "")
+ggsave(plotname1, wuf,width = 10,height = 4,limitsize = TRUE)
+
+
+```
+
+

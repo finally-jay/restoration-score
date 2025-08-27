@@ -1,0 +1,62 @@
+---
+title: "RS10.Mediation_analysis"
+author: "Jay"
+date: "2023-11-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+library(phyloseq)
+library(copiome)
+library(picante)
+library(magrittr)
+library(speedyseq)
+library(broom)
+library(RColorBrewer)
+library(tidyr)
+library(ggplot2)
+library(dplyr)
+
+load("../data/phy_3timepoints_restoration_score.rdata")
+source("../jay_small_functions/rabuplot.R")
+source("../jay_small_functions/ps.alpha.diversity.R")
+source("../jay_small_functions/summarize_data.R")
+
+
+
+```
+
+
+###set otu res path
+```{r}
+outpath = "../results/RS10.Mediation_analysis"
+dir.create(outpath)
+```
+
+
+
+###mediation analysis with bac_1w
+```{r}
+
+library(speedyseq)
+library(mediation)
+
+
+ps <- phy_3timepoints %>% subset_samples(Visit == "1 week"  & !oldchild_yn %in% c(NA) ) %>% 
+  speedyseq::tax_glom("species") %>% filter_phy(prevalence = .1, abundance = 1e-4,compositional = FALSE) %>% transform_sample_counts(function(x) log10(x + min(x[x > 0])))
+
+bac_1w <- rio::import("../results/RS05_1.sPLS_1wk/RScore_Preds_bac_1wk_comp1.csv") %>% dplyr::select(-1)
+set.seed(123)
+med.analysis <- left_join(sample_df(ps), bac_1w) %>% dplyr::select(restoration_score,oldchild_yn,delivery,RScore_Preds_bac_1wk) %>% na.omit()
+# cor(med.analysis$CS_Preds_PLS_1y,med.analysis$CSscore_Preds_bac_1wk, method = "spearman")
+med.analysis$oldchild_binary <- ifelse(med.analysis$oldchild_yn == "yes", 1, 0)
+
+mediator_model <- lm(RScore_Preds_bac_1wk ~ oldchild_binary + delivery, data = med.analysis)
+outcome_model <- lm(restoration_score ~ RScore_Preds_bac_1wk*oldchild_binary + delivery, data = med.analysis)
+med.fit <- mediation::mediate(mediator_model, outcome_model, treat = "oldchild_binary", mediator = "RScore_Preds_bac_1wk")
+
+summary(med.fit)
+plot(med.fit,xlim = c(-0.035, 0.035))
+
+```

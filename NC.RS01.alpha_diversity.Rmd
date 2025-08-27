@@ -1,0 +1,137 @@
+---
+title: "RS01.alpha_diversity"
+author: "Jay"
+date: "2024-02-26"
+output: html_document
+---
+1. alpha diversity is calculated on full dataset and in cs stratum at 3 timepoints
+2. alpha indexes are tested on full dataset with continuous scores using linear regression, adj for delivery mode
+3. alpha indexes are tested in CS stratum both with continuous scores using linear regression
+4. tables will be the output of this part
+
+#set outpath
+```{r}
+outpath = "../results/RS01.alpha_beta"
+dir.create(outpath)
+```
+
+
+#load packages
+```{r}
+library(phyloseq)
+library(copiome)
+library(picante)
+library(magrittr)
+library(speedyseq)
+library(broom)
+library(RColorBrewer)
+library(tidyr)
+library(ggplot2)
+library(dplyr)
+source("../jay_small_functions/rabuplot.R")
+source("../jay_small_functions/ps.alpha.diversity.R")
+source("../jay_small_functions/summarize_data.R")
+
+load("../data/phy_3timepoints_restoration_score.rdata")
+
+samp <- phy_3timepoints %>% subset_samples(Visit == "1 year") %>% sample_df
+```
+
+
+#alpha diversity on full dataset with continuous score adjust for delivery
+```{r}
+p.value.3t <- data.frame()
+alpha.3t <- data.frame()
+p.value <- data.frame()
+
+alpha_diversity_columns <- c("Chao1","Shannon","PD")
+
+for (time in c("1 week", "1 month", "1 year")){
+  ps <- phy_3timepoints %>% subset_samples(Visit == time) %>% speedyseq::tax_glom("species")
+  
+  alpha <- ps.alpha.diversity(ps)
+  alpha.3t <- rbind(alpha.3t,alpha)
+  
+    for(alpha_diversity_column in alpha_diversity_columns){
+       model <- lm(restoration_score ~ alpha[[alpha_diversity_column]]+ delivery + Reads + log(Reads), data = alpha)
+       model.tidy <- tidy(model,conf.int = TRUE) %>% dplyr::slice(-1) %>% as.data.frame()
+       model.tidy$Visit <- time
+       model.tidy$index <- alpha_diversity_column
+       
+       p.value.3t <- rbind(p.value.3t,model.tidy)
+
+       
+}
+  
+}
+
+p.value.selected <- p.value.3t %>% dplyr::mutate(estimate = round(estimate,3),
+                                           p.value = round(p.value, 2),
+                                           conf.low = round(conf.low,3),
+                                           conf.high = round(conf.high,3)) %>% 
+  dplyr::filter(term %in% c("alpha[[alpha_diversity_column]]")) %>% 
+  dplyr::select(Visit,index,estimate,conf.low,conf.high,p.value)
+
+alpha.sum <- summarize_data(alpha.3t, group_by_label = "Visit",target_cols = c("Chao1", "Shannon","PD") ) 
+
+alpha.pval <- dplyr::left_join(alpha.sum,p.value.selected,by = c("Visit","index")) %>% 
+  select(Visit, index,mean, SD, estimate,conf.low, conf.high, p.value) %>% 
+  mutate(Visit = factor(Visit, levels = c("1 week", "1 month", "1 year"))) %>% 
+  arrange(Visit)
+
+tablename = paste0(outpath, "/alpha_CSscore_lm_adj_for_delivery.csv", sep = "")
+write.csv(alpha.pval,tablename)
+
+alpha.pval
+```
+
+#alpha diversity in cs stratum with continuous score
+```{r}
+
+p.value.3t <- data.frame()
+alpha.3t <- data.frame()
+p.value <- data.frame()
+
+alpha_diversity_columns <- c("Chao1","Shannon","PD")
+
+for (time in c("1 week", "1 month", "1 year")){
+  ps <- phy_3timepoints %>% subset_samples(Visit == time & delivery == "c_section") %>% speedyseq::tax_glom("species")
+  
+  alpha <- ps.alpha.diversity(ps)
+  alpha.3t <- rbind(alpha.3t,alpha)
+  
+    for(alpha_diversity_column in alpha_diversity_columns){
+       model <- lm(restoration_score ~ alpha[[alpha_diversity_column]] + Reads + log(Reads), data = alpha)
+       model.tidy <- tidy(model,conf.int = TRUE) %>% dplyr::slice(-1) %>% as.data.frame()
+       model.tidy$Visit <- time
+       model.tidy$index <- alpha_diversity_column
+       
+       p.value.3t <- rbind(p.value.3t,model.tidy)
+
+       
+}
+  
+}
+
+
+p.value.selected <- p.value.3t %>% dplyr::mutate(estimate = round(estimate,3),
+                                           p.value = round(p.value, 2),
+                                           conf.low = round(conf.low,3),
+                                           conf.high = round(conf.high,3)) %>% 
+  dplyr::filter(term %in% c("alpha[[alpha_diversity_column]]")) %>% 
+  dplyr::select(Visit,index,estimate,conf.low,conf.high,p.value)
+
+alpha.sum <- summarize_data(alpha.3t, group_by_label = "Visit",target_cols = c("Chao1", "Shannon","PD") ) 
+
+alpha.pval <- dplyr::left_join(alpha.sum,p.value.selected,by = c("Visit","index")) %>% 
+  select(Visit, index,mean, SD, estimate,conf.low, conf.high, p.value) %>% 
+  mutate(Visit = factor(Visit, levels = c("1 week", "1 month", "1 year"))) %>% 
+  arrange(Visit)
+
+tablename = paste0(outpath, "/alpha_CSscore_lm_cs.csv", sep = "")
+write.csv(alpha.pval,tablename)
+
+alpha.pval
+```
+
+

@@ -1,0 +1,560 @@
+---
+title: "10.16s_COPSAC_sPLS_model_1y_restoration"
+author: "Jay"
+date: "2025-03-31"
+output: html_document
+---
+
+#set outpath
+```{r setup, include=FALSE}
+rm(list=ls()) # clear all objects from R memory
+knitr::opts_chunk$set(echo = TRUE)
+
+outpath <- "../results/10.16s_COPSAC_sPLS_model_1y_restoration"
+dir.create(outpath)
+```
+
+#load packages and data
+```{r}
+library(phyloseq)
+library(copiome)
+library(biomformat)
+library(caret)
+library(pROC)
+library(mixOmics)
+library(tidyverse)
+library(mixOmicsCaret) 
+library(ggforce)
+library(magrittr)
+library(copiome)
+library(dplyr)
+library(phyloseq)
+library(rabuplot)
+library(grid)
+library(limma)
+
+
+source("./Functions/Demographic Function.R")
+source("./Functions/UVA&MVA function.R")
+source("./Functions/ForestPlot Function.R")
+
+load("../data/CS_PLS_1y_Jay.RData")
+child_16s <- readRDS("../data/00.phy_16s.rds")
+colnames(tax_df(child_16s))
+# [1] "Rank1" "Rank2" "Rank3" "Rank4" "Rank5" "Rank6" "Rank7" "tax"  
+#genus: Rank6; species: Rank7
+
+table(child_16s@sam_data$exact_age_cut)
+ # 2m  3m  4m  5m  6m  7m  8m  9m 10m 11m 12m 13m 14m 15m 16m 17m 18m 19m 20m 22m 25m 29m 
+ #  2 199 409 118  50  37  12   1   4  17 321 268 119  46  30  18   9   6   5   2   1   1 
+
+phy_1y <- child_16s %>% subset_samples(exact_age_cut %in% c("9m","10m","11m","12m") & Visit == "1 year" & !birth_mode_abx %in% c("c_section_no_abx")) %>% speedyseq::tax_glom("Genus") %>% transform_phy("compositional") %>% transform_sample_counts(function(x) log(x + (min(x[x > 0],na.rm = TRUE)/2)))
+
+otu_1y <- otu_df(phy_1y)
+colnames(otu_1y) <- tax_df(phy_1y)$Genus[match(colnames(otu_1y),row.names(tax_df(phy_1y)))]
+
+colnames(otu_1y) <- make.unique(colnames(otu_1y))
+
+otu_1y$SampleID <- row.names(otu_1y)
+
+samp_1y <- sample_df(phy_1y) %>% dplyr::select(SampleID,SubjectNumber, birth_mode)
+
+samp_pls <- samp_1y %>% left_join(otu_1y) %>% 
+  mutate(birth_mode = ifelse(birth_mode == "vaginal",0,
+                             ifelse(birth_mode == "c_section", 1, birth_mode)),
+         birth_mode = as.numeric(birth_mode)) %>% 
+  filter(!is.na(birth_mode))
+
+##Duplicated "Clostridium", because some rows may share the same Genus label (e.g., "Clostridium") but belong to different lineages (i.e., same Genus name from different Families/Orders/etc.)
+
+# tax <- tax_df(phy_1y)
+# tax[tax$Genus == "Clostridium",]
+
+```
+
+
+##check CS_PLS_1y and prepare the dataset
+###if same genus name exist, use the genus, for multiple hits, might cause repeated using of the same genus
+###if doesn't match the exact genus name:
+###1.replace that genus with other genus from the same lineage,
+
+```{r}
+# detach("package:mixOmics", unload=TRUE)
+# detach("package:rabuplot", unload=TRUE)
+# detach("package:dplyr", unload = TRUE)
+# library(dplyr)
+
+CS_PLS_1y
+
+bestSet <- CS_PLS_1y %>% get_best_predictions %>% group_by(Rep) 
+head(bestSet)
+
+bestSet %>% 
+  dplyr::summarize(auc = pROC::auc(obs, pred, direction = "<") %>% as.numeric) %>% 
+  arrange(auc)
+
+savedPreds <- CS_PLS_1y %>% get_best_predictions %>% filter(Rep == "Rep1")
+head(savedPreds)
+
+loading <- CS_PLS_1y %>% get_loadings %>% 
+  mutate(var_child = ifelse(var == "Bacteroides", "Bacteroides",
+                            ifelse(var == "Dysgonomonas", "Dysgonomonas",
+                                   ifelse(var == "Family_Enterobacteriaceae", "Enterobacteriaceae_g.",
+                                          ifelse(var == "Escherichia_Shigella", "Shigella","Sutterella")))))
+
+loading$color_label <- ifelse(loading$loading > 0, "CS-like", "Vaginal-like")
+loading$color_label <- factor(loading$color_label, levels = c("Vaginal-like", "CS-like"))
+loading_color <- c("#2166AC", "#B2182B")
+
+loading$var_child <- gsub("_", " ", loading$var_child)
+loading$loading_res <- -loading$loading
+
+p <- loading %>% 
+  ggplot(aes(reorder(var_child,-loading), loading_res, color = color_label, fill = color_label)) + 
+  coord_flip()+
+  geom_bar(stat = "identity", width = 0.6) + 
+  scale_x_discrete(expand = c(0, 0.1)) +     # reduce space between bars
+  scale_color_manual(name = "",values = loading_color)+
+  scale_fill_manual(name = "",values = loading_color)+
+  xlab(NULL)+
+  ylab("Loading")+
+  ylim(c(-0.7,0.7))+
+  theme_classic()+
+  theme(axis.text.x = element_text(face = "italic",angle = 75, hjust = 1),
+        axis.text.y = element_text(face = "italic", size = 12),
+        legend.position = c(1, .75),
+        legend.justification = c("right", "top"),
+        legend.key.size = unit(0.4, "cm"),         # reduce legend key (box) size
+        legend.text = element_text(size = 8),      # reduce legend text size
+        legend.spacing.y = unit(0.1, "cm"));p
+
+plotname = paste0(outpath, "/01.Child_res_score_16s_1y_loading.pdf")
+ggsave(plotname, p, width = 7, height = 4)
+
+saveRDS(p, file = paste0(outpath, "/01.Child_res_score_16s_1y_loading.RDS"))
+
+loading_color <- c("#66A61E", "#D62728")
+
+p <- loading %>% 
+  ggplot(aes(reorder(var,-loading), loading_res, color = color_label, fill = color_label)) + 
+  coord_flip()+
+  geom_bar(stat = "identity", width = 0.6, alpha = 0.9) + 
+  scale_x_discrete(expand = c(0, 0.1)) +     # reduce space between bars
+  scale_color_manual(name = "",values = loading_color)+
+  scale_fill_manual(name = "",values = loading_color)+
+  xlab(NULL)+
+  ylab("Loading")+
+  ylim(c(-0.7,0.7))+
+  theme_classic()+
+  theme(axis.text.x = element_text(face = "italic",angle = 75, hjust = 1),
+        axis.text.y = element_text(face = "italic"),
+        legend.position = c(1,.75),
+        legend.justification = c("right", "top"),
+        legend.key.size = unit(0.4, "cm"),         # reduce legend key (box) size
+        legend.text = element_text(size = 8),      # reduce legend text size
+        legend.spacing.y = unit(0.1, "cm"));p
+
+plotname = paste0(outpath, "/01.COPSAC_res_score_16s_1y_loading.png")
+ggsave(plotname, p, width = 7, height = 4)
+
+saveRDS(p, file = paste0(outpath, "/01.COPSAC_res_score_16s_1y_loading.RDS"))
+
+# Bacteroides	
+# Dysgonomonas
+# Family_Enterobacteriaceae
+# Escherichia_Shigella
+# Sutterella
+
+
+colnames(CS_PLS_1y[["trainingData"]])
+
+samp_replicate <- samp_pls %>% 
+  reframe(SubjectNumber = SubjectNumber,
+          Class = birth_mode,
+          Coprococcus = Coprococcus,
+          Clostridium_XlVa = Clostridium,
+          Blautia = Blautia,
+          Anaerostipes = Anaerostipes,
+          Clostridium_XlVb = Clostridium.1,
+          Family_Ruminococcaceae = Ruminococcaceae_g.,
+          Kingdom_Bacteria = Proteus, ##simulate
+          Subdoligranulum = Subdoligranulum,
+          Faecalibacterium = Faecalibacterium,
+          Butyricicoccus = Butyricimonas, ##simulate
+          Ruminococcus = Ruminococcus,
+          Clostridium_IV = Clostridium.2,
+          Sporobacter = Epulopiscium, ##simulate
+          Oscillibacter = Oscillospira, ##simulate
+          Flavonifractor = Eubacterium,
+          Family_Clostridiaceae_1 = Clostridiaceae_g.,
+          Sarcina = Sarcina,
+          Clostridium_sensu_stricto = Clostridium.3,
+          Streptococcus = Streptococcus,
+          Family_Peptostreptococcaceae = Peptostreptococcaceae_g.,
+          Clostridium_XI = Clostridium, ##repeated
+          Phascolarctobacterium = Phascolarctobacterium,
+          Family_Acidaminococcaceae = Acidaminococcus,
+          Megamonas = Megamonas,
+          Dialister = Dialister,
+          Megasphaera = Megasphaera,
+          Family_Veillonellaceae = Veillonella,
+          Veillonella = Veillonella, ##repeated
+          Lactobacillus = Lactobacillus,
+          Enterococcus = Enterococcus,
+          Order_Lactobacillales = Lactococcus,
+          Turicibacter = Turicibacter,
+          Phylum_Firmicutes = Acidaminococcus, ##simulate
+          Paraprevotella = Paraprevotella,
+          Prevotella = Prevotella,
+          Bacteroides = Bacteroides, #############1.
+          Order_Bacteroidales = Bacteroidales_f._g.,
+          Butyricimonas = Butyricimonas,
+          Odoribacter = Odoribacter,
+          Phylum_Bacteroidetes = Bacteroidaceae_g.,
+          Barnesiella = Barnesiellaceae_g.,
+          Family_Porphyromonadaceae = Parabacteroides,
+          Parabacteroides = Parabacteroides,
+          Dysgonomonas = Dysgonomonas,#############2.
+          Alistipes = Alistipes,
+          Eggerthella = Eggerthella,
+          Collinsella = Collinsella,
+          Gardnerella = Bifidobacterium, ##repeated
+          Bifidobacterium = Bifidobacterium,
+          Akkermansia = Akkermansia,
+          Fusobacterium = Fusobacterium,
+          Erysipelotrichaceae_incertae_sedis = Erysipelotrichaceae_g.,
+          Clostridium_XVIII = Clostridium.1, ##repeated
+          Moraxella = Acinetobacter, ##simulate
+          Family_Enterobacteriaceae = Enterobacteriaceae_g., ############3.
+          Escherichia_Shigella = Shigella, ##############4.
+          Proteus = Proteus,
+          Morganella = Morganella,
+          Family_Pasteurellaceae = Aggregatibacter, ##simulate
+          Actinobacillus = Actinobacillus,
+          Haemophilus = Haemophilus,
+          Parasutterella = Sutterella, ##repeated
+          Order_Burkholderiales = Sutterella,##repeated
+          Sutterella = Sutterella, ################5.
+          Class_Alphaproteobacteria = RF32_f._g.,
+          Bilophila = Bilophila,
+          Class_Clostridia = Mogibacteriaceae_g.,##simulated
+          Order_Clostridiales = Clostridiales_f._g.,
+          Lachnospiracea_incertae_sedis = Lachnospiraceae_g.,
+          
+          Dorea = Dorea,
+          Family_Lachnospiraceae = Lachnospiraceae_g.,
+          Roseburia = Roseburia
+          )
+
+
+```
+
+
+##apply the model
+```{r}
+Child_CS_score_16s <- predict(CS_PLS_1y, newdata = samp_replicate %>% select(-SubjectNumber)) %>% as.data.frame()
+
+samp_replicate$Child_CS_score = scale(Child_CS_score_16s$.)
+
+Child_CS_score_16s_df <- samp_replicate %>% select(SubjectNumber, Child_CS_score)
+
+Child_res_score_16s_df <- samp_replicate %>% 
+  mutate(Child_res_score = -Child_CS_score)
+
+saveRDS(Child_res_score_16s_df, file = paste0(outpath, "/02.Child_res_score_16s_1y.rds"))
+
+```
+
+
+##check with asthma
+###
+###labels
+
+```{r}
+
+dic.label <- c("birth_mode" = "Birth mode",
+               "birth_mode_labor" = "Birth mode (w/wo labor)",
+               "birth_mode_abx" = "Birth mode & antibiotics use",
+               "birth_season" = "Birth season",
+               "atb_mother_birth" = "Antibiotics to mother during birth",
+               "atb_mother_preg" = "Antibiotics to mother during pregnancy",
+               "gest_days" = "Gestational age (days)",
+               "hospitallength" = "Hospitalization after birth (days)",
+               "birth_weight_z" = "Birth weight (z score)",
+               "male" = "Male",
+               "caucasian_dad" = "Caucasian father",
+               "caucasian_mom" = "Caucasian mother",
+               "any_breastmilk_ever" = "Any breastmilk ever",
+               "any_breastmilk_3m" = "Any breastmilk at 3m",
+               "any_breastmilk_6m" = "Any breastmilk at 6m",
+               "any_breastmilk_1y" = "Any breastmilk at 1y",
+               "exclusive_breastmilk_ever" = "Exclusive breastmilk ever",
+               "exclusive_breastmilk_3m" = "Exclusive breastmilk at 3m",
+               "exclusive_breastmilk_6m" = "Exclusive breastmilk at 6m",
+               "childcare_3m" = "Childcare at 3m",
+               "childcare_1y" = "Childcare at 1y",
+               "oldchild_yn" = "Having older siblings",
+               "atb_child_1y" = "Antibiotics to child at 1y",
+               "atb_child_3m" = "Antibiotics to child at 3m",
+               "cat_1y" = "Having cats at home at 1y",
+               "dog_1y" = "Having dogs at home at 1y",
+               "prenatal_smoke" = "Prenatal smoke",
+               "postnatal_smoke" = "Postnatal smoke",
+               "maternal_diet" = "Maternal diet",
+               "mother_asthma" = "Maternal asthma history",
+               "mother_atopy" = "Maternal atopy history",
+               "father_asthma" = "Paternal asthma history",
+               "father_atopy" = "Paternal atopy history",
+               "canadaladder_pre18w" = "Canada SES ladder at pregnancy 18w",
+               "canadaladder_1y" = "Canada SES ladder at 1y",
+               "communityladder_pre18w" = "Community SES ladder at pregnancy 18w",
+               "communityladder_1y" = "Community SES ladder at 1y",
+               "father_edu_18w" = "Paternal education at 18w",
+               "father_edu_1y" = "Paternal education at 1y",
+               "mother_edu_18w" = "Maternal education at 18w",
+               "mother_edu_1y" = "Maternal education at 1y",
+               "income_pre" = "Household income at pregnancy",
+               "income_1y" = "Household income at 1y",
+               "SES_index_18w" = "SES index at 18w",
+               "SES_index_1y" = "SES index at 1y",
+               "mother_bmi" = "Maternal BMI",
+               "gestational_diabetes" = "Gestational diabetes",
+               "studycenter" = "Study center",
+               # "birth_mode_abx" = "Birth mode vs antibiotics to mother during birth",
+               "asthma3y" = "Asthma diagnosis at 3y",
+               "asthma5y" = "Asthma diagnosis at 5y",
+               "Child_res_score" = "CHILD 1-year restoration score")
+
+
+cate.vars.use <- c("birth_mode",
+                  "birth_mode_labor",
+                  "birth_mode_abx",
+                   "birth_season",
+                   "atb_mother_birth",
+                   "atb_mother_preg",
+                   "male",
+                   "caucasian_dad",
+                   "caucasian_mom",
+                   "any_breastmilk_ever",      
+                   "any_breastmilk_3m",       
+                   "any_breastmilk_6m",       
+                   "any_breastmilk_1y",       
+                   "exclusive_breastmilk_ever",
+                   "exclusive_breastmilk_3m", 
+                   "exclusive_breastmilk_6m", 
+                   "childcare_3m",            
+                   "childcare_1y", 
+                   "oldchild_yn",
+                   "atb_child_1y",
+                   "atb_child_3m",
+                   "cat_1y",                  
+                   "dog_1y",                  
+                   "prenatal_smoke",          
+                   "postnatal_smoke",         
+                   "mother_asthma",           
+                   # "mother_atopy",            
+                   "father_asthma",           
+                   # "father_atopy",            
+                   "canadaladder_pre18w",
+                   "canadaladder_1y",
+                   "communityladder_pre18w",
+                   "communityladder_1y",
+                   "father_edu_18w",          
+                   "father_edu_1y",           
+                   "mother_edu_18w",          
+                   "mother_edu_1y",           
+                   "income_pre",
+                   "income_1y",
+                   "gestational_diabetes",    
+                   "studycenter",             
+                   # "birth_mode_abx",        
+                   "asthma3y",                
+                   "asthma5y" 
+                   )
+
+cont.vars.use <- c("gest_days",
+                   "hospitallength",
+                   "birth_weight_z",
+                   "maternal_diet",           
+                   "SES_index_18w",           
+                   "SES_index_1y",            
+                   "mother_bmi")
+```
+
+
+###models
+```{r}
+samp_1y <- sample_df(phy_1y) %>% filter(!asthma5y == "Possible Asthma") %>% 
+   mutate(asthma5y = factor(asthma5y, levels = c("No Asthma", "Asthma")))
+
+Res_score_asthma <- samp_1y %>% left_join(Child_res_score_16s_df)  
+
+my_colors <- c("#2166AC", "#B2182B") #"#67001F" "#D6604D" "#4393C3"
+
+library(ggpubr)
+Res_score_birthmode_boxplot <- Res_score_asthma %>% 
+  filter(!is.na(birth_mode)) %>% 
+  ggplot(aes(birth_mode, Child_res_score, color = birth_mode, fill = birth_mode)) +
+  geom_jitter(show.legend = FALSE) +
+  geom_boxplot(outlier.shape = NA, notch = FALSE, color = "black", alpha = 0.7, show.legend = FALSE) +
+  scale_fill_manual(values = my_colors) +
+  scale_color_manual(values = my_colors) +
+  xlab("")+
+  ylab("CHILD CS score at 1 year")+
+  stat_compare_means(label = "p.format", hide.ns = TRUE, tip.length = 0.0) +
+  theme_classic()+
+  theme(legend.position = "none");Res_score_birthmode_boxplot
+
+
+plotname = paste0(outpath, "/03.Res_score_3m_birthmode_boxplot.pdf")
+ggsave(plotname, Res_score_birthmode_boxplot, width = 4, height = 4)
+
+glm_asthma <- glm(data = Res_score_asthma, asthma5y ~ Child_res_score + studycenter, family = binomial(link = "logit")) %>% 
+  broom::tidy(conf.int = T) %>%
+  subset(term == "Child_res_score") %>% 
+  dplyr::mutate(across(c(estimate, conf.low, conf.high), exp))
+glm_asthma$label = "Asthma"
+
+glm_birthmode <- glm(data = Res_score_asthma, birth_mode ~ Child_res_score + studycenter, family = binomial(link = "logit")) %>% 
+  broom::tidy(conf.int = T) %>%
+  subset(term == "Child_res_score") %>% 
+  dplyr::mutate(across(c(estimate, conf.low, conf.high), exp))
+
+glm_birthmode$label = "C-section"
+
+glm_oldsibling <- glm(data = Res_score_asthma, oldchild_yn ~ Child_res_score + studycenter, family = binomial(link = "logit")) %>% 
+  broom::tidy(conf.int = T) %>%
+  subset(term == "Child_res_score") %>% 
+  dplyr::mutate(across(c(estimate, conf.low, conf.high), exp))
+
+glm_oldsibling$label = "Having older siblings"
+
+glm <- rbind(glm_asthma, glm_birthmode) %>% rbind(glm_oldsibling) %>% as.data.frame()
+
+
+p <- ggplot(glm, aes(y = label, x = estimate)) +
+  geom_point(size = 3) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0.2) +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "gray40") +
+  labs(
+    x = "Odds Ratio (95% CI)",
+    y = NULL,
+  ) +
+  theme_classic()+
+  theme(
+    axis.text.y = element_text(size = 14)
+  );p
+
+  plotname = paste0(outpath, "/04.Child_res_score_16s_1y_glm.pdf")
+ggsave(plotname, p, width = 4, height = 2)
+saveRDS(p, file = paste0(outpath, "/04.Child_res_score_16s_1y_glm.RDS"))
+
+
+source("Functions/UVA&MVA function.R")
+source("Functions/Demographic Function.R")
+
+df = Res_score_asthma
+
+
+
+outcome = "asthma5y"
+group = "Child_res_score"
+covar <- c("gest_days","hospitallength", "male", "atb_child_1y","oldchild_yn", "mother_asthma", "father_asthma","caucasian_dad","caucasian_mom","birth_season","studycenter") 
+scale.use = "odds_ratio"
+
+demo.tab.full <- df[,c(outcome,group,covar)]
+cate.vars <- c(covar[covar%in%cate.vars.use])
+cont.vars <- c(group,covar[covar%in%cont.vars.use])
+dic.demo <- dic.label[c(group,covar)] 
+level.label <- c("yes" = "Yes",
+                 "no" ="No",
+                 "c_section" = "C-section",
+                 "vaginal" = "Vaginal",
+                 "1.Spring" = "Spring",
+                 "2.Summer" = "Summer",
+                 "3.Fall" = "Fall",
+                 "4.Winter" = "Winter");
+dic.level <- level.label
+subg.var <- outcome
+demo.tab.full.res <- demo.fuc(data.demo = demo.tab.full,
+                     subg.var = subg.var,
+                     cate.vars = cate.vars,
+                     cont.vars = cont.vars,
+                     dic.demo = dic.demo,
+                     # dic.level = level.label,
+                     na.option = "Exclude",
+                     comp.p = T)
+
+
+tablename = paste0(outpath, "/00.Child_res_score_demographic_table.xlsx")
+writexl::write_xlsx(demo.tab.full.res, tablename)
+
+data.demo <- na.omit(df[,c(outcome,group,covar)])
+cate.vars <- c(covar[covar%in%cate.vars.use])
+cont.vars <- c(group,covar[covar%in%cont.vars.use])
+dic.demo <- dic.label[c(group,covar)] 
+level.label <- c("yes" = "Yes",
+                 "no" ="No",
+                 "c_section" = "C-section",
+                 "vaginal" = "Vaginal",
+                 "1.Spring" = "Spring",
+                 "2.Summer" = "Summer",
+                 "3.Fall" = "Fall",
+                 "4.Winter" = "Winter");
+dic.level <- level.label
+subg.var <- outcome
+demo.tab <- demo.fuc(data.demo = data.demo,
+                     subg.var = subg.var,
+                     cate.vars = cate.vars,
+                     cont.vars = cont.vars,
+                     dic.demo = dic.demo,
+                     # dic.level = level.label,
+                     na.option = "Exclude",
+                     comp.p = T)
+
+
+
+res.use <- UVAMVA.func(data.demo,
+                   res.var=outcome,
+                   conf.vars.func=c(group,covar),
+                   func.type="glm", 
+                   strata=NULL, #with stratum of study center
+                   ana.type="MVA", ci=T, save.model=F, na.uva="Each", scale=scale.use)
+
+glm[4,] <- c("Child_res_score", res.use["Child_res_score", "MVA"], NA, NA ,res.use["Child_res_score", "MVA_P"], 0.26, 0.82, "Asthma (adjusted)")
+glm[, 2:7] <- as.data.frame(lapply(glm[, 2:7], as.numeric))
+glm$order <- c(3,1,2,4)
+
+glm_CHILD <- glm %>% 
+  mutate(cohort = "CHILD")
+
+glm_COPSAC <- readRDS("../data/03.glm_COPSAC.rds")
+
+glm_all <- rbind(glm_CHILD, glm_COPSAC)
+glm_all$cohort <- factor(glm_all$cohort, levels = c("CHILD", "COPSAC"))
+
+p <- ggplot(glm_all, aes(y = reorder(label, -order), x = estimate,
+                         xmin = conf.low, xmax = conf.high,
+                         linetype = cohort, group = cohort)) +
+  geom_point(size = 1, position = position_dodge(width = 0.5)) +
+  geom_linerange(size = 0.1, position = position_dodge(width = 0.5)) +
+  geom_errorbarh(height = 0.3, position = position_dodge(width = 0.5)) +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "gray40") +
+  labs(
+    x = "Odds Ratio (95% CI)",
+    y = NULL
+  ) +
+  scale_linetype_manual(values = c("CHILD" = 1, "COPSAC" = 3)) +
+  guides(linetype = guide_legend(reverse = TRUE)) +  # <- Reverses the legend order
+  theme_classic()+
+  theme(legend.position = c(0.88, 0.148),
+        legend.title = element_blank());p
+
+
+  plotname = paste0(outpath, "/04.Child_res_score_16s_1y_glm_adjusted.pdf")
+ggsave(plotname, p, width = 4, height = 2)
+saveRDS(p, file = paste0(outpath, "/04.Child_res_score_16s_1y_glm_adjusted.RDS"))
+
+```
+
+

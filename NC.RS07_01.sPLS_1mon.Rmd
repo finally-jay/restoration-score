@@ -1,0 +1,759 @@
+---
+title: "RS07.sPLS_1mon"
+author: "Jay"
+date: "2023-11-28"
+output: html_document
+---
+
+In this part, sPLS model on gut microbiome, environmental factors and both of them predicting 1-year CS score as continuous score will be performed
+
+The output is expected to be (ROC curve) correlation plot in this case, to illustrate the predictive power of gut microbiome and environmental factor individually and jointly.
+The aim of this part is to investigate how strong the early gut mcirobime and envrionmental factors will impact the gut microbiome status at 1 year timepoint.
+
+
+```{r setup, include=FALSE}
+
+library(caret)
+library(pROC)
+library(mixOmics)
+library(tidyverse)
+library(mixOmicsCaret) 
+library(ggforce)
+library(magrittr)
+library(copiome)
+library(dplyr)
+library(phyloseq)
+```
+
+
+###set otu res path
+```{r}
+outpath <- "../results/RS07_01.sPLS_1mon"
+dir.create(outpath)
+```
+
+# Env VS CS score in full dataset
+## Load data.
+```{r}
+
+load("../data/phy_3timepoints_restoration_score.rdata")
+
+phy_1mon <- phy_3timepoints %>% subset_samples(Visit == "1 month" & !restoration_score %in% c(NA))
+samp <- sample_df(phy_1mon)
+colid = which(colnames(samp) == "ABCNO")
+col1 = which(colnames(samp) == "delivery")
+col2 = which(colnames(samp) == "restoration_score")
+
+samp_pls <- sample_df(phy_1mon) %>% .[,c(colid,col1:col2)] %>% dplyr::select(-sibling_age,-sibling_age_imputed,-CS_Preds_PLS_1y) %>% na.omit()
+
+
+```
+
+
+
+```{r}
+set.seed(123)
+library(mixOmicsCaret)
+library(tidyr)
+library(caret)
+
+repCV10 <- trainControl(method = "repeatedcv", 
+                        number = 10, 
+                        repeats = 11, 
+                        returnResamp = "all", 
+                        savePredictions = "all", 
+                        allowParallel = T, 
+                        verboseIter = F)
+
+```
+
+
+###sPLS 1
+```{r}
+set.seed(123)
+scorePLS <- train(restoration_score ~ ., data = samp_pls %>% dplyr::select(-ABCNO),
+                  method = get_mixOmics_spls(),
+                  preProc = c("center", "scale"),
+                  tuneGrid = expand.grid(ncomp = 1:5, 
+                                         keepX = c(1,2,4,6,8,10,22,25,30,35,39), 
+                                         keepY = 1),
+                  trControl = repCV10,
+                  fixX = c())
+
+saveRDS(scorePLS, file = paste0(outpath, "/sPLS_1mon_env.rds"))
+
+```
+
+```{r}
+scorePLS <- readRDS("../results/RS07_01.sPLS_1mon/sPLS_1mon_env.rds")
+p <- scorePLS$pred %>%
+  separate(Resample, c("Fold", "Rep")) %>% filter(ncomp == 1) %>%  
+  dplyr::group_by(ncomp,keepX, Rep) %>%
+  dplyr::summarise(cor = cor(obs, pred, method = "spearman")) %>%
+  ggplot(aes(x = factor(keepX), y = cor)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(color = "grey", alpha = 0.8, show.legend = FALSE) +
+    facet_grid(. ~ ncomp, labeller = as_labeller(c(`1` = "Component 1"))) +
+    geom_hline(yintercept = 0) +
+    ylim(c(-0.15,0.3))+
+    scale_color_brewer(palette = "Set1", name = NULL) +
+    theme_bw() + theme(strip.background = element_blank()) +
+    xlab("Number of variables")+
+    ylab("Spearman coefficient of true value VS predictions");p
+
+plotname1 = paste(outpath,"/sPLS_CV_corplot_Env_1mon.pdf",sep = "")
+ggsave(plotname1, p,width = 8,height = 5,limitsize = FALSE)
+
+
+save(p, file = paste0(outpath, "/sPLS_CV_corplot_Env_1mon.RData"))
+```
+
+
+
+##get predictions
+###Retrieve the predictions from the optimal model
+```{r}
+# Retrieve the predictions from the optimal model
+bestSet <- scorePLS %>% get_best_predictions %>% group_by(Rep) 
+head(bestSet)
+
+bestSet %>% 
+  summarize(cor = cor(obs, pred, method = "spearman") %>% as.numeric) %>% 
+  arrange(cor)
+
+savedPreds <- scorePLS %>% get_best_predictions %>% filter(Rep == "Rep05")
+head(savedPreds)
+
+
+cor.cv <- cor.test(samp_pls$restoration_score,savedPreds$pred,method = "spearman", use = "complete.obs")
+cor <- cor.cv$estimate %>% round(3)
+
+df <- scorePLS %>% get_loadings("finalModel") %>% 
+  filter(loading != 0)
+
+
+# Creating the group_info data frame
+group_info <- data.frame(
+  var = c(
+    "atb_birth_motheryes",
+    "oldchild_ynyes"
+  ),
+  readable_label = c(
+    "Antibiotics to mother at birth (yes)",
+    "Having older siblings (yes)"
+  )
+)
+
+df <- df %>% merge(group_info, by = "var")
+
+
+p <-  df %>% 
+  ggplot(aes(reorder(readable_label, loading), loading)) +
+  geom_col(fill = "grey",show.legend = FALSE) +
+  ylim(c(-1,1))+
+  coord_flip()+
+  facet_grid(. ~ comp, labeller = as_labeller(c(`comp1` = "Environmental factors"))) +
+
+  xlab(NULL)+
+  ylab("Loading")+
+  theme_minimal()+
+  theme(axis.text.x = element_text(size = 14,angle = 75, hjust = 1),
+        axis.text.y = element_text(size = 14),
+        strip.background = element_rect(fill = "grey", color = "grey"),
+        strip.text.x = element_text(size = 14),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank());p
+
+plotname1 = paste(outpath,"/loading_Env_vs_restoration_score.pdf",sep = "")
+ggsave(plotname1, p,width = 5,height = 3,limitsize = FALSE)
+
+save(p, file = paste0(outpath, "/loading_Env_vs_restoration_score.RData"))
+
+
+# CSscore_Preds_env <- full_scores$predict %>% as.data.frame()
+RScore_Preds_env_1mon <- savedPreds$pred %>% as.data.frame()
+
+colnames(RScore_Preds_env_1mon) <- c("RScore_Preds_env_1mon")
+RScore_Preds_env_1mon$ABCNO <- samp_pls$ABCNO
+
+tablename <- paste(outpath,"/RScore_Preds_env_1mon",".csv",sep = "")
+write.csv(RScore_Preds_env_1mon,tablename)
+
+```
+
+
+
+
+
+
+
+
+# Gut microbiome VS CS score in full dataset
+##load data
+```{r}
+
+load("../data/phy_3timepoints_restoration_score.rdata")
+
+ps <- phy_3timepoints %>% subset_samples(Visit == "1 month" & !restoration_score %in% c(NA)) %>% speedyseq::tax_glom("species") %>% filter_phy(prevalence = .1, abundance = 1e-4,compositional = FALSE) %>% transform_sample_counts(function(x) log10(x + min(x[x > 0])))
+
+name_clean <- tax_df(ps)$species  %>% gsub("\\[|\\]", "", .) %>% gsub(" ","_",.) %>% gsub("-","_",.) %>% gsub("^_","",.) %>% gsub("^[0-9]","a\\",.)
+tax_table(ps) <- as(tax_table(ps), "matrix") %>% as.data.frame() %>% mutate(species = name_clean) %>% as(., "matrix")
+
+otu <- otu_df(ps)
+colnames(otu) <- tax_df(ps)$species[match(colnames(otu),row.names(tax_df(ps)))]
+
+feature_name <- colnames(otu)
+
+#calibrate for sequence depth
+otu$SampleID <- row.names(otu)
+
+samp_otu <- left_join(sample_df(ps), otu)
+
+otu.residual <- list()
+
+for (i in feature_name){
+  lm <- lm(samp_otu[,which(colnames(samp_otu) == i)] ~ samp_otu$Reads + log(samp_otu$Reads))
+  otu.residual[[i]] <- residuals(lm) %>% scale
+}
+
+otu.residual <- as.data.frame(otu.residual)
+
+#merge with sam data
+otu.residual$SampleID <- samp_otu$SampleID
+
+samp_pls_bac <- left_join(sample_df(ps), otu.residual) %>% dplyr::select(ABCNO,restoration_score, all_of(feature_name))
+
+```
+
+```{r}
+set.seed(123)
+library(mixOmicsCaret)
+library(tidyr)
+library(caret)
+
+repCV10 <- trainControl(method = "repeatedcv", 
+                        number = 10, 
+                        repeats = 11, 
+                        returnResamp = "all", 
+                        savePredictions = "all", 
+                        allowParallel = T, 
+                        verboseIter = F)
+
+```
+
+
+##sPLS 1
+```{r}
+
+set.seed(123)
+scorePLS <- train(restoration_score ~ ., data = samp_pls_bac %>% dplyr::select(-ABCNO),
+                  method = get_mixOmics_spls(),
+                  preProc = c("center", "scale"),
+                  tuneGrid = expand.grid(ncomp = 1:5, 
+                                         keepX = c(1,2,4,8, 25, 40, 60,100, 143,151), 
+                                         keepY = 1),
+                  trControl = repCV10,
+                  fixX = c())
+
+```
+
+
+```{r}
+
+p <- scorePLS$pred %>%
+  separate(Resample, c("Fold", "Rep")) %>%
+  filter(ncomp %in% c(1,2)) %>%
+  group_by(ncomp, keepX, Rep) %>%
+  summarise(cor = cor(obs, pred, method = "spearman")) %>%
+  ggplot(aes(x = factor(keepX), y = cor)) +
+    geom_boxplot(outlier.shape = NA) +
+    ylim(c(-0.15,0.3))+
+    facet_grid(. ~ ncomp, labeller = as_labeller(c(`1` = "Component 1", `2` = "Component 2"))) +
+    geom_jitter(color = "#0072B2", alpha = 0.8, show.legend = FALSE) +
+    geom_hline(yintercept = 0) +
+    scale_color_brewer(palette = "Set1", name = NULL) +
+    theme_bw() + 
+    theme(strip.background = element_blank()) +
+    xlab("Number of variables") +
+    ylab("Spearman coefficient of true value VS predictions");p
+
+plotname1 = paste(outpath,"/sPLS_CV_corplot_Bac_1mon.pdf",sep = "")
+ggsave(plotname1, p,width = 8,height = 5,limitsize = FALSE)
+
+
+save(p, file = paste0(outpath, "/sPLS_CV_corplot_Bac_1mon.RData"))
+
+```
+
+##sPLS 2
+```{r}
+set.seed(123)
+scorePLS_2 <- train(restoration_score ~ ., data = samp_pls_bac %>% dplyr::select(-ABCNO),
+                  method = get_mixOmics_spls(),
+                  preProc = c("center", "scale"),
+                  tuneGrid = expand.grid(ncomp = 1, 
+                                         keepX = c(1,2,4,8, 25, 40, 60,100, 143,151), 
+                                         keepY = 1),
+                  trControl = repCV10,
+                  fixX = c())
+```
+
+
+```{r}
+p <- scorePLS_2$pred %>%
+  separate(Resample, c("Fold", "Rep")) %>%
+  filter(ncomp %in% c(1)) %>%
+  group_by(ncomp, keepX, Rep) %>%
+  summarise(cor = cor(obs, pred, method = "spearman")) %>%
+  ggplot(aes(x = factor(keepX), y = cor)) +
+    geom_boxplot(outlier.shape = NA) +
+    ylim(c(-0.15,0.3))+
+    facet_grid(. ~ ncomp, labeller = as_labeller(c(`1` = "Component 1", `2` = "Component 2"))) +
+    geom_jitter(color = "#0072B2", alpha = 0.8, show.legend = FALSE) +
+    geom_hline(yintercept = 0) +
+    scale_color_brewer(palette = "Set1", name = NULL) +
+    theme_bw() + 
+    theme(strip.background = element_blank()) +
+    xlab("Number of variables") +
+    ylab("Spearman coefficient of true value VS predictions");p
+```
+
+
+
+##sPLS 3
+```{r}
+set.seed(123)
+scorePLS_3 <- train(restoration_score ~ ., data = samp_pls_bac %>% dplyr::select(-ABCNO),
+                  method = get_mixOmics_spls(),
+                  preProc = c("center", "scale"),
+                  tuneGrid = expand.grid(ncomp = 1, 
+                                         keepX = c(8:40), 
+                                         keepY = 1),
+                  trControl = repCV10,
+                  fixX = c())
+
+saveRDS(scorePLS_3, file = paste0(outpath, "/sPLS_1mon_bac.rds"))
+```
+
+
+```{r}
+
+scorePLS_3 <- readRDS("../results/RS07_01.sPLS_1mon/sPLS_1mon_bac.rds")
+p <- scorePLS_3$pred %>%
+  separate(Resample, c("Fold", "Rep")) %>%
+  filter(ncomp %in% c(1)) %>%
+  group_by(ncomp, keepX, Rep) %>%
+  summarise(cor = cor(obs, pred, method = "spearman")) %>%
+  ggplot(aes(x = factor(keepX), y = cor)) +
+    geom_boxplot(outlier.shape = NA) +
+    ylim(c(-0.15,0.3))+
+    facet_grid(. ~ ncomp, labeller = as_labeller(c(`1` = "Component 1"))) +
+    geom_jitter(color = "#0072B2", alpha = 0.8, show.legend = FALSE) +
+    geom_hline(yintercept = 0) +
+    scale_color_brewer(palette = "Set1", name = NULL) +
+    theme_bw() + 
+    theme(strip.background = element_blank()) +
+    xlab("Number of variables") +
+    ylab("Spearman coefficient of true value VS predictions");p
+```
+
+
+##get predictions
+###Retrieve the predictions from the optimal model
+```{r}
+# Retrieve the predictions from the optimal model
+bestSet <- scorePLS_3 %>% get_best_predictions %>% group_by(Rep) 
+head(bestSet)
+bestSet %>% 
+  summarize(cor = cor(obs, pred, method = "spearman") %>% as.numeric) %>% 
+  arrange(cor)
+
+
+savedPreds <- scorePLS_3 %>% get_best_predictions %>% filter(Rep == "Rep02")
+head(savedPreds)
+
+
+cor.cv <- cor.test(samp_pls_bac$restoration_score,savedPreds$pred,method = "spearman",use = "complete.obs")
+cor <- cor.cv$estimate %>% round(3)
+df <- scorePLS_3 %>% get_loadings("finalModel") %>% 
+  filter(loading != 0) %>% 
+  mutate(var = gsub("_", " ", var))
+
+
+
+
+
+p <-  df %>% 
+  ggplot(aes(reorder(var,loading), loading)) +
+  geom_col(fill = "#0072B2",show.legend = FALSE) +
+  ylim(c(-1,1))+
+  coord_flip()+
+  facet_wrap(~ comp, scales = "free_x",nrow = 1, labeller = as_labeller(c(`comp1` = "1 month gut microbiome"))) +
+  xlab(NULL)+
+  ylab("Loading")+
+  theme_minimal()+
+  theme(axis.text.x = element_text(size = 14,angle = 75, hjust = 1),
+        axis.text.y = element_text(size = 14,face = "italic"),
+        strip.background = element_rect(fill = "#0072B280", color = "#0072B280"),
+        strip.text.x = element_text(size = 14),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank()) ;p
+
+plotname1 = paste(outpath,"/loading_Bac_vs_resotration_score_comp1.pdf",sep = "")
+ggsave(plotname1, p,width = 8,height = 5,limitsize = FALSE)
+save(p, file = paste0(outpath, "/loading_Bac_vs_restoration_score_comp1.RData"))
+
+
+RScore_Preds_bac_1mon <- savedPreds$pred %>% as.data.frame()
+
+colnames(RScore_Preds_bac_1mon) <- c("RScore_Preds_bac_1mon")
+RScore_Preds_bac_1mon$ABCNO <- samp_pls_bac$ABCNO
+
+tablename <- paste(outpath,"/RScore_Preds_bac_1mon_comp1",".csv",sep = "")
+write.csv(RScore_Preds_bac_1mon,tablename)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+# Gut microbiome plus Env VS CS score in full dataset
+##load data
+```{r}
+
+load("../data/phy_3timepoints_restoration_score.rdata")
+
+ps <- phy_3timepoints %>% subset_samples(Visit == "1 month" & !restoration_score %in% c(NA)) %>% speedyseq::tax_glom("species") %>% filter_phy(prevalence = .1, abundance = 1e-4,compositional = FALSE) %>% transform_sample_counts(function(x) log10(x + min(x[x > 0])))
+
+name_clean <- tax_df(ps)$species  %>% gsub("\\[|\\]", "", .) %>% gsub(" ","_",.) %>% gsub("-","_",.) %>% gsub("^_","",.) %>% gsub("^[0-9]","a\\",.)
+tax_table(ps) <- as(tax_table(ps), "matrix") %>% as.data.frame() %>% mutate(species = name_clean) %>% as(., "matrix")
+
+otu <- otu_df(ps)
+colnames(otu) <- tax_df(ps)$species[match(colnames(otu),row.names(tax_df(ps)))]
+
+feature_name <- colnames(otu)
+
+#calibrate for sequence depth
+otu$SampleID <- row.names(otu)
+
+samp_otu <- left_join(sample_df(ps), otu)
+
+otu.residual <- list()
+
+for (i in feature_name){
+  lm <- lm(samp_otu[,which(colnames(samp_otu) == i)] ~ samp_otu$Reads + log(samp_otu$Reads))
+  otu.residual[[i]] <- residuals(lm) %>% scale
+}
+
+otu.residual <- as.data.frame(otu.residual)
+
+#merge with sam data
+otu.residual$SampleID <- samp_otu$SampleID
+
+samp_name <- sample_df(ps) %>% .[,c(col1:col2)] %>% dplyr::select(-sibling_age,-sibling_age_imputed,-CS_Preds_PLS_1y) %>% colnames
+
+
+samp_pls_env_bac <- left_join(sample_df(ps), otu.residual) %>% dplyr::select(ABCNO,all_of(samp_name), all_of(feature_name)) %>% na.omit()
+
+```
+
+```{r}
+set.seed(123)
+library(mixOmicsCaret)
+library(tidyr)
+library(caret)
+repCV10 <- trainControl(method = "repeatedcv", 
+                        number = 10, 
+                        repeats = 11, 
+                        returnResamp = "all", 
+                        savePredictions = "all", 
+                        allowParallel = T, 
+                        verboseIter = F)
+
+```
+
+
+##sPLS 1
+```{r}
+
+set.seed(123)
+scorePLS <- train(restoration_score ~ ., data = samp_pls_env_bac %>% dplyr::select(-ABCNO),
+                  method = get_mixOmics_spls(),
+                  preProc = c("center", "scale"),
+                  tuneGrid = expand.grid(ncomp = 1:5, 
+                                         keepX = c(1,2,4,6,8,10,20,30,50,70,80,120), 
+                                         keepY = 1),
+                  trControl = repCV10,
+                  fixX = c())
+
+```
+
+
+```{r}
+scorePLS$pred %>%
+  separate(Resample, c("Fold", "Rep")) %>%
+  dplyr::group_by(ncomp, keepX, Rep) %>%
+  dplyr::summarise(cor = cor(obs, pred, method = "spearman")) %>%
+  ggplot(aes(x = factor(keepX), y = cor)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(aes(color = factor(ncomp)), alpha = 0.2, show.legend = FALSE) +
+    geom_hline(yintercept = 0) +
+    facet_grid(. ~ ncomp) +
+    scale_color_brewer(palette = "Set1", name = NULL) +
+    theme_bw() + theme(strip.background = element_blank()) +
+    xlab("Number of variables")
+```
+
+##sPLS 2
+```{r}
+set.seed(123)
+scorePLS_2 <- train(restoration_score ~ ., data = samp_pls_env_bac %>% dplyr::select(-ABCNO),
+                  method = get_mixOmics_spls(),
+                  preProc = c("center", "scale"),
+                  tuneGrid = expand.grid(ncomp = 1, 
+                                         keepX = c(1:40), 
+                                         keepY = 1),
+                  trControl = repCV10,
+                  fixX = c())
+```
+
+
+```{r}
+scorePLS_2$pred %>%
+  separate(Resample, c("Fold", "Rep")) %>%
+  dplyr::group_by(ncomp, keepX, Rep) %>%
+  dplyr::summarise(cor = cor(obs, pred, method = "spearman")) %>%
+  ggplot(aes(x = factor(keepX), y = cor)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(aes(color = factor(ncomp)), alpha = 0.2, show.legend = FALSE) +
+    geom_hline(yintercept = 0) +
+    facet_grid(. ~ ncomp) +
+    scale_color_brewer(palette = "Set1", name = NULL) +
+    theme_bw() + theme(strip.background = element_blank()) +
+    xlab("Number of variables")
+
+
+p <- scorePLS_2$pred %>%
+  separate(Resample, c("Fold", "Rep")) %>% filter(ncomp %in% c(1,2)) %>%  
+  dplyr::group_by(ncomp,keepX, Rep) %>%
+  dplyr::summarise(cor = cor(obs, pred, method = "spearman")) %>%
+  ggplot(aes(x = factor(keepX), y = cor)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(aes(color = "#D55E00", alpha = 0.2), show.legend = FALSE) +
+    facet_grid(. ~ ncomp, labeller = as_labeller(c(`1` = "Component 1"))) +
+    geom_hline(yintercept = 0) +
+    scale_color_brewer(palette = "Set1", name = NULL) +
+    theme_bw() + theme(strip.background = element_blank()) +
+    xlab("Number of variables")+
+    ylab("Spearman coefficient of true value VS predictions");p
+
+
+plotname1 = paste(outpath,"/sPLS_CV_corplot_Env&Bac_1mon.pdf",sep = "")
+ggsave(plotname1, p,width = 8,height = 5,limitsize = FALSE)
+
+
+save(p, file = paste0(outpath, "/sPLS_CV_corplot_Env&Bac_1mon.RData"))
+```
+
+
+
+##sPLS 3
+```{r}
+set.seed(123)
+scorePLS_3 <- train(restoration_score ~ ., data = samp_pls_env_bac %>% dplyr::select(-ABCNO),
+                  method = get_mixOmics_spls(),
+                  preProc = c("center", "scale"),
+                  tuneGrid = expand.grid(ncomp = 1, 
+                                         keepX = c(1:40), 
+                                         keepY = 1),
+                  trControl = repCV10,
+                  fixX = c(17))
+
+saveRDS(scorePLS_3, file = paste0(outpath, "/sPLS_1mon_bac_env.rds"))
+```
+
+
+```{r}
+scorePLS_3 <- readRDS("../results/RS07_01.sPLS_1mon/sPLS_1mon_bac_env.rds")
+p <- scorePLS_3$pred %>%
+  separate(Resample, c("Fold", "Rep")) %>%
+  dplyr::group_by(ncomp, keepX, Rep) %>%
+  dplyr::summarise(cor = cor(obs, pred, method = "spearman")) %>%
+  ggplot(aes(x = factor(keepX), y = cor)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(aes(color = factor(ncomp)), alpha = 0.2, show.legend = FALSE) +
+    geom_hline(yintercept = 0) +
+    facet_grid(. ~ ncomp) +
+    scale_color_brewer(palette = "Set1", name = NULL) +
+    theme_bw() + theme(strip.background = element_blank()) +
+    xlab("Number of variables");p
+
+plotname1 = paste(outpath,"/sPLS_CV_corplot_Env&Bac_1mon_17_comp1.pdf",sep = "")
+ggsave(plotname1, p,width = 8,height = 5,limitsize = FALSE)
+
+
+save(p, file = paste0(outpath, "/sPLS_CV_corplot_Env&Bac_1mon_17_comp1.RData"))
+
+```
+
+
+
+
+##get predictions
+###Retrieve the predictions from the optimal model
+```{r}
+# Retrieve the predictions from the optimal model
+bestSet <- scorePLS_3 %>% get_best_predictions %>% group_by(Rep)
+head(bestSet)
+bestSet %>%
+  summarize(cor = cor(obs, pred, method = "spearman") %>% as.numeric) %>%
+  arrange(cor)
+
+
+savedPreds <- scorePLS_3 %>% get_best_predictions %>% filter(Rep == "Rep04")
+head(savedPreds)
+
+
+cor.cv <- cor.test(samp_pls_env_bac$restoration_score,savedPreds$pred,method = "spearman", use = "complete.obs")
+cor <- cor.cv$estimate %>% round(3)
+
+
+df <- scorePLS_3 %>% get_loadings("finalModel") %>% 
+  mutate(type = if_else(var %in% feature_name, "bac", "env")) %>% 
+  filter(loading != 0) 
+
+env_names <- df %>% filter(type == "env") %>% .$var
+
+
+group_info <- data.frame(
+  var = c(
+    "deliveryc_section",
+    "atb_birth_motheryes",
+    "oldchild_ynyes"
+  ),
+  readable_label = c(
+    "Delivery by C-section",
+    "Antibiotics to mother at birth",
+    "Having older siblings (yes)"
+  ))
+
+index = match(df$var, group_info$var,nomatch = FALSE )
+
+df[index,]$var <- group_info$readable_label
+
+df[!index, ]$var <- paste0("*", gsub("_", " ", df[!index, ]$var), "*")
+
+df <- df %>% arrange(loading)
+
+library(ggtext)
+p <- df %>%
+  ggplot(aes(reorder(var, loading), loading, fill = type)) +
+  geom_col(show.legend = FALSE) +
+    coord_flip()+
+
+  scale_fill_manual(values = c("env" = "grey", "bac" = "#0072B2")) +
+  ylim(c(-1, 1)) +
+  facet_wrap(~ comp, scales = "free_x", nrow = 1, labeller = as_labeller(c('comp1' = "1 month gut microbiome and environmental factors"))) +
+  xlab(NULL) +
+  ylab("Loading") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_markdown(size = 14,angle = 75, hjust = 1),
+    axis.text.y = element_markdown(size = 14),
+    strip.background = element_rect(fill = "#D55E0080", color = "#D55E0090"),
+    strip.text.x = element_text(size = 14),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_blank()) +
+  scale_x_discrete(labels = df$var);p
+
+plotname1 = paste(outpath,"/loading_Bac_Env_vs_restoration_score.pdf",sep = "")
+ggsave(plotname1, p,width = 8,height = 5,limitsize = FALSE)
+
+
+save(p, file = paste0(outpath, "/loading_Bac_Env_vs_restoration_score.RData"))
+
+
+Rscore_Preds_env_bac_1mon <- savedPreds$pred %>% as.data.frame()
+
+colnames(Rscore_Preds_env_bac_1mon) <- c("Rscore_Preds_env_bac_1mon")
+Rscore_Preds_env_bac_1mon$ABCNO <- samp_pls_env_bac$ABCNO
+
+tablename <- paste(outpath,"/Rscore_Preds_env_bac_1mon",".csv",sep = "")
+write.csv(Rscore_Preds_env_bac_1mon,tablename)
+```
+
+
+# Summary
+```{r}
+Rscore_Preds_env_bac_1mon <- rio::import("../results/RS07.sPLS_1mon/Rscore_Preds_env_bac_1mon.csv") %>% dplyr::select(-V1)
+Rscore_Preds_env_1mon <- rio::import("../results/RS07.sPLS_1mon/RScore_Preds_env_1mon.csv") %>% dplyr::select(-V1)
+Rscore_Preds_bac_1mon <- rio::import("../results/RS07.sPLS_1mon/RScore_Preds_bac_1mon_comp1.csv") %>% dplyr::select(-V1)
+
+load("../data/phy_3timepoints_restoration_score.rdata")
+
+ps <- phy_3timepoints %>% subset_samples(Visit == "1 month" & !restoration_score %in% c(NA)) 
+true_Rscore <- sample_df(ps) %>% dplyr::select(ABCNO, restoration_score)
+
+sPLS_pred_1mon <- true_Rscore %>% full_join(Rscore_Preds_env_bac_1mon) %>% full_join(Rscore_Preds_env_1mon) %>% full_join(Rscore_Preds_bac_1mon)
+
+library(ggplot2)
+library(reshape2)
+
+df_long <- melt(sPLS_pred_1mon, id.vars = c("ABCNO", "restoration_score"), variable.name = "sPLS_model", value.name = "Preds")
+df_long$sPLS_model <- factor(df_long$sPLS_model, levels = c("RScore_Preds_bac_1mon","RScore_Preds_env_1mon","Rscore_Preds_env_bac_1mon"))
+
+correlations <- lapply(sPLS_pred_1mon[,3:5], function(x) cor.test(x, sPLS_pred_1mon$restoration_score,method = "spearman",use = "complete.obs"))
+
+
+cor_text <- data.frame(
+  sPLS_model = names(correlations),
+  cor_coeff = sapply(correlations, function(x) round(x$estimate,3)),
+  p.value = sapply(correlations, function(x) x$p.value),
+  x = c(0.42,0.42,0.42),
+  y = c(0.24,0.205,0.215))
+
+cor_text$p.value <- ifelse(cor_text$p.value <0.001," < 0.001", paste0(" = ",as.character(round(cor_text$p.value, 3))))
+cor_text$label <- paste0("Spearman rho: ", round(cor_text$cor_coeff,2), ", P", cor_text$p.value)
+
+
+p <- ggplot(df_long, aes(x = restoration_score, y = Preds, color = sPLS_model)) +
+  geom_point(alpha = 0.9) + 
+  geom_smooth(method = "lm", se = FALSE, aes(group = sPLS_model)) + 
+  theme_minimal(base_size = 12) + 
+  scale_color_manual(name = NULL,
+                     values = c("Rscore_Preds_env_bac_1mon" = "#D55E00", "RScore_Preds_bac_1mon" = "#0072B2", "RScore_Preds_env_1mon" = "grey"),
+                     labels = c(paste0("1 month gut microbiome",'\n', cor_text$label[which(cor_text$sPLS_model == "RScore_Preds_bac_1mon")]), 
+                                paste0("Environmental factors",'\n', cor_text$label[which(cor_text$sPLS_model == "RScore_Preds_env_1mon")]),
+                                paste0("1 month gut microbiome and environmental factors", '\n', cor_text$label[which(cor_text$sPLS_model == "Rscore_Preds_env_bac_1mon")])))+
+  theme_minimal(base_size = 14) + 
+  theme(legend.position = "bottom",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank()) +
+  labs(title = NULL, x = "Restoration score", y = "Predictions from sPLS models");p
+
+
+plotname1 <- paste0(outpath, "/sPLS_1mon_corplot.png",sep = "")
+ggsave(plotname1, p, width = 12, height = 9, limitsize = TRUE)
+
+save(p, file = paste0(outpath, "/sPLS_1mon_corplot.RData"))
+
+
+```
+
+
+
+
+
+
+
